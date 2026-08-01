@@ -5,11 +5,12 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/tutorin-id/tutorin-billing-service/internal/domain"
+	"github.com/kelolakelas/kelolakelas-billing-service/internal/domain"
 )
 
 type WalletRepository interface {
 	GetByTenantID(ctx context.Context, tenantID uuid.UUID) (*domain.Wallet, error)
+	Create(ctx context.Context, wallet *domain.Wallet) error
 	Update(ctx context.Context, wallet *domain.Wallet) error
 }
 
@@ -42,5 +43,12 @@ type VoucherRepository interface {
 type TransactionRepository interface {
 	Create(ctx context.Context, transaction *domain.Transaction) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Transaction, error)
+	GetByPaymentIntentID(ctx context.Context, paymentIntentID string) (*domain.Transaction, error)
 	Update(ctx context.Context, transaction *domain.Transaction) error
+}
+
+type SubscriptionRepository interface {
+	Create(ctx context.Context, subscription *domain.Subscription) error
+	GetByEnrollmentID(ctx context.Context, enrollmentID uuid.UUID) (*domain.Subscription, error)
+	Update(ctx context.Context, subscription *domain.Subscription) error
 }

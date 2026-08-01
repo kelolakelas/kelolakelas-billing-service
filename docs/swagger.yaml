@@ -1,0 +1,150 @@
+basePath: /
+definitions:
+  github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.ErrorResponse:
+    properties:
+      data: {}
+      message:
+        type: string
+      status:
+        type: string
+    type: object
+  github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.FlipWebhookPayload:
+    properties:
+      data: {}
+      token:
+        type: string
+    type: object
+  github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.GenerateSubscriptionPaymentRequest:
+    properties:
+      discount_amount:
+        minimum: 0
+        type: integer
+      enrollment_id:
+        type: string
+      platform_fee:
+        minimum: 0
+        type: integer
+      subtotal_amount:
+        type: integer
+      tenant_id:
+        type: string
+      title:
+        type: string
+      voucher_id:
+        type: string
+    required:
+    - enrollment_id
+    - subtotal_amount
+    - tenant_id
+    type: object
+  github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.GenerateSubscriptionPaymentResponse:
+    properties:
+      checkout_session_url:
+        type: string
+      gross_amount:
+        type: integer
+      payment_intent_id:
+        type: string
+      status:
+        type: string
+      transaction_id:
+        type: string
+    type: object
+  github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.HTTPResponse:
+    properties:
+      data: {}
+      message:
+        type: string
+      status:
+        type: string
+    type: object
+info:
+  contact: {}
+  description: Billing and Payment Service for KelolaKelas Platform
+  title: KelolaKelas Billing Service API
+  version: "1.0"
+paths:
+  /api/v1/billing/transactions:
+    post:
+      consumes:
+      - application/json
+      description: Initiates class subscription payment via Flip Accept Payment
+      parameters:
+      - description: Payment request details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.GenerateSubscriptionPaymentRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.HTTPResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.GenerateSubscriptionPaymentResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.ErrorResponse'
+      summary: Generate class subscription payment link
+      tags:
+      - Billing
+  /api/v1/billing/webhooks/flip:
+    post:
+      consumes:
+      - application/json
+      - application/x-www-form-urlencoded
+      description: Callback endpoint for Flip Accept Payment status updates
+      parameters:
+      - description: Flip validation token
+        in: header
+        name: x-flip-validation-token
+        type: string
+      - description: Flip webhook payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.FlipWebhookPayload'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.HTTPResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.ErrorResponse'
+      summary: Handle Flip payment webhook callback
+      tags:
+      - Billing
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

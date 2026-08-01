@@ -1,0 +1,230 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "Billing and Payment Service for KelolaKelas Platform",
+        "title": "KelolaKelas Billing Service API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "basePath": "/",
+    "paths": {
+        "/api/v1/billing/transactions": {
+            "post": {
+                "description": "Initiates class subscription payment via Flip Accept Payment",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Billing"
+                ],
+                "summary": "Generate class subscription payment link",
+                "parameters": [
+                    {
+                        "description": "Payment request details",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.GenerateSubscriptionPaymentRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.HTTPResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.GenerateSubscriptionPaymentResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/billing/webhooks/flip": {
+            "post": {
+                "description": "Callback endpoint for Flip Accept Payment status updates",
+                "consumes": [
+                    "application/json",
+                    "application/x-www-form-urlencoded"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Billing"
+                ],
+                "summary": "Handle Flip payment webhook callback",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Flip validation token",
+                        "name": "x-flip-validation-token",
+                        "in": "header"
+                    },
+                    {
+                        "description": "Flip webhook payload",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.FlipWebhookPayload"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.HTTPResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "data": {},
+                "message": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.FlipWebhookPayload": {
+            "type": "object",
+            "properties": {
+                "data": {},
+                "token": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.GenerateSubscriptionPaymentRequest": {
+            "type": "object",
+            "required": [
+                "enrollment_id",
+                "subtotal_amount",
+                "tenant_id"
+            ],
+            "properties": {
+                "discount_amount": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "enrollment_id": {
+                    "type": "string"
+                },
+                "platform_fee": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "subtotal_amount": {
+                    "type": "integer"
+                },
+                "tenant_id": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "voucher_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.GenerateSubscriptionPaymentResponse": {
+            "type": "object",
+            "properties": {
+                "checkout_session_url": {
+                    "type": "string"
+                },
+                "gross_amount": {
+                    "type": "integer"
+                },
+                "payment_intent_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "transaction_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.HTTPResponse": {
+            "type": "object",
+            "properties": {
+                "data": {},
+                "message": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        }
+    },
+    "securityDefinitions": {
+        "BearerAuth": {
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header"
+        }
+    }
+}

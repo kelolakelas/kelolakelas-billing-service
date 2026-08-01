@@ -5,7 +5,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/tutorin-id/tutorin-billing-service/internal/domain"
+	"github.com/kelolakelas/kelolakelas-billing-service/internal/domain"
 )
 
 type WalletUsecase interface {
@@ -20,6 +20,8 @@ type VoucherUsecase interface {
 type TransactionUsecase interface {
 	CreateTransaction(ctx context.Context, tx *domain.Transaction) error
 	GetTransaction(ctx context.Context, id uuid.UUID) (*domain.Transaction, error)
+	GenerateSubscriptionPayment(ctx context.Context, req *domain.GenerateSubscriptionPaymentRequest) (*domain.GenerateSubscriptionPaymentResponse, error)
+	HandleFlipWebhook(ctx context.Context, payload *domain.FlipWebhookPayload, validationToken string) error
 }
 
 type WithdrawalUsecase interface {
