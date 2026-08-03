@@ -12,12 +12,13 @@ import (
 	_ "github.com/kelolakelas/kelolakelas-billing-service/docs"
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/config"
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/delivery/http/handler"
+	"github.com/kelolakelas/kelolakelas-billing-service/internal/delivery/http/middleware"
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/domain"
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/repository"
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/usecase"
 	"github.com/kelolakelas/kelolakelas-billing-service/pkg/academic"
 	"github.com/kelolakelas/kelolakelas-billing-service/pkg/database"
-	"github.com/kelolakelas/kelolakelas-billing-service/pkg/flip"
+	"github.com/kelolakelas/kelolakelas-billing-service/pkg/duitku"
 )
 
 // @title KelolaKelas Billing Service API
@@ -62,7 +63,7 @@ func main() {
 	}
 
 	// Initialize Clients
-	flipClient := flip.NewClient(cfg.FlipBaseURL, cfg.FlipAPISecretKey)
+	duitkuClient := duitku.NewClient(cfg.DuitkuAPIBaseURL, cfg.DuitkuAPIKey, cfg.DuitkuMerchantCode, nil)
 	academicClient := academic.NewClient(cfg.AcademicServiceURL)
 
 	// Initialize Repositories
@@ -72,10 +73,10 @@ func main() {
 	ledgerRepo := repository.NewLedgerEntryRepository(db)
 
 	// Initialize Usecases
-	txUsecase := usecase.NewTransactionUsecase(txRepo, walletRepo, ledgerRepo, subscriptionRepo, flipClient, academicClient, cfg)
+	txUsecase := usecase.NewTransactionUsecase(txRepo, walletRepo, ledgerRepo, subscriptionRepo, duitkuClient, academicClient, cfg)
 
 	// Initialize Handlers
-	txHandler := handler.NewTransactionHandler(txUsecase)
+	txHandler := handler.NewTransactionHandler(txUsecase, duitkuClient)
 
 	// Initialize Router
 	r := gin.New()
@@ -95,8 +96,12 @@ func main() {
 	// Routes
 	apiV1 := r.Group("/api/v1/billing")
 	{
-		apiV1.POST("/transactions", txHandler.GenerateSubscriptionPayment)
-		apiV1.POST("/webhooks/flip", txHandler.HandleFlipWebhook)
+		apiV1.POST("/webhooks/duitku", txHandler.HandleDuitkuWebhook)
+		protected := apiV1.Group("")
+		protected.Use(middleware.AuthMiddleware(cfg.JWTSecret))
+		protected.POST("/transactions", txHandler.GenerateSubscriptionPayment)
+		protected.GET("/transactions", txHandler.List)
+		protected.GET("/transactions/:id", txHandler.Get)
 	}
 
 	slog.Info("Starting billing service", "port", cfg.Port)

@@ -1,6 +1,35 @@
 basePath: /
 definitions:
-  github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.ErrorResponse:
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.DuitkuCallbackPayload:
+    properties:
+      amount:
+        type: string
+      merchantCode:
+        type: string
+      merchantOrderId:
+        type: string
+      merchantUserId:
+        type: string
+      paymentCode:
+        type: string
+      productDetail:
+        type: string
+      reference:
+        type: string
+      resultCode:
+        type: string
+      settlementDate:
+        type: string
+      signature:
+        type: string
+    required:
+    - amount
+    - merchantCode
+    - merchantOrderId
+    - resultCode
+    - signature
+    type: object
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse:
     properties:
       data: {}
       message:
@@ -8,22 +37,37 @@ definitions:
       status:
         type: string
     type: object
-  github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.FlipWebhookPayload:
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.GenerateSubscriptionPaymentRequest:
     properties:
-      data: {}
-      token:
+      billing_cycle:
+        enum:
+        - monthly
+        - quarterly
+        - yearly
         type: string
-    type: object
-  github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.GenerateSubscriptionPaymentRequest:
-    properties:
+      class_id:
+        type: string
       discount_amount:
         minimum: 0
         type: integer
       enrollment_id:
         type: string
+      parent_id:
+        type: string
+      payment_gateway_fee:
+        minimum: 0
+        type: integer
       platform_fee:
         minimum: 0
         type: integer
+      sender_email:
+        type: string
+      sender_name:
+        type: string
+      sender_phone:
+        type: string
+      student_id:
+        type: string
       subtotal_amount:
         type: integer
       tenant_id:
@@ -33,11 +77,15 @@ definitions:
       voucher_id:
         type: string
     required:
+    - billing_cycle
+    - class_id
     - enrollment_id
+    - parent_id
+    - student_id
     - subtotal_amount
     - tenant_id
     type: object
-  github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.GenerateSubscriptionPaymentResponse:
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.GenerateSubscriptionPaymentResponse:
     properties:
       checkout_session_url:
         type: string
@@ -50,12 +98,75 @@ definitions:
       transaction_id:
         type: string
     type: object
-  github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.HTTPResponse:
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse:
     properties:
       data: {}
       message:
         type: string
       status:
+        type: string
+    type: object
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.TransactionListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.TransactionResponse'
+        type: array
+      pagination:
+        properties:
+          page:
+            type: integer
+          page_size:
+            type: integer
+          total_items:
+            type: integer
+          total_pages:
+            type: integer
+        type: object
+    type: object
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.TransactionResponse:
+    properties:
+      checkout_session_url:
+        type: string
+      created_at:
+        type: string
+      currency:
+        type: string
+      discount_amount:
+        type: integer
+      enrollment_id:
+        type: string
+      gross_amount:
+        type: integer
+      id:
+        type: string
+      merchant_order_id:
+        type: string
+      net_amount:
+        type: integer
+      paid_at:
+        type: string
+      parent_id:
+        type: string
+      payment_gateway_fee:
+        type: integer
+      payment_gateway_provider:
+        type: string
+      payment_intent_id:
+        type: string
+      platform_fee:
+        type: integer
+      status:
+        type: string
+      student_id:
+        type: string
+      subtotal_amount:
+        type: integer
+      tenant_id:
+        type: string
+      updated_at:
+        type: string
+      voucher_id:
         type: string
     type: object
 info:
@@ -65,17 +176,35 @@ info:
   version: "1.0"
 paths:
   /api/v1/billing/transactions:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.TransactionListResponse'
+              type: object
+      security:
+      - BearerAuth: []
+      summary: List billing transactions
+      tags:
+      - Billing
     post:
       consumes:
       - application/json
-      description: Initiates class subscription payment via Flip Accept Payment
+      description: Initiates class subscription payment via Duitku
       parameters:
       - description: Payment request details
         in: body
         name: request
         required: true
         schema:
-          $ref: '#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.GenerateSubscriptionPaymentRequest'
+          $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.GenerateSubscriptionPaymentRequest'
       produces:
       - application/json
       responses:
@@ -83,63 +212,84 @@ paths:
           description: Created
           schema:
             allOf:
-            - $ref: '#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.HTTPResponse'
+            - $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.GenerateSubscriptionPaymentResponse'
+                  $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.GenerateSubscriptionPaymentResponse'
               type: object
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.ErrorResponse'
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.ErrorResponse'
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
       summary: Generate class subscription payment link
       tags:
       - Billing
-  /api/v1/billing/webhooks/flip:
-    post:
-      consumes:
-      - application/json
-      - application/x-www-form-urlencoded
-      description: Callback endpoint for Flip Accept Payment status updates
+  /api/v1/billing/transactions/{id}:
+    get:
       parameters:
-      - description: Flip validation token
-        in: header
-        name: x-flip-validation-token
-        type: string
-      - description: Flip webhook payload
-        in: body
-        name: payload
+      - description: Transaction UUID
+        in: path
+        name: id
         required: true
-        schema:
-          $ref: '#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.FlipWebhookPayload'
+        type: string
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.HTTPResponse'
+            allOf:
+            - $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.TransactionResponse'
+              type: object
+      security:
+      - BearerAuth: []
+      summary: Get billing transaction
+      tags:
+      - Billing
+  /api/v1/billing/webhooks/duitku:
+    post:
+      consumes:
+      - application/json
+      - application/x-www-form-urlencoded
+      description: Callback endpoint for Duitku payment status updates
+      parameters:
+      - description: Duitku callback payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.DuitkuCallbackPayload'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.ErrorResponse'
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.ErrorResponse'
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.ErrorResponse'
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/github_com_kelolakelas-id_kelolakelas-billing-service_internal_domain.ErrorResponse'
-      summary: Handle Flip payment webhook callback
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+      summary: Handle Duitku payment webhook callback
       tags:
       - Billing
 securityDefinitions:

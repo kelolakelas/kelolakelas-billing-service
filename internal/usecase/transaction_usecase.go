@@ -2,9 +2,10 @@ package usecase
 
 import (
 	"context"
-	"crypto/subtle"
 	"errors"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,7 +16,6 @@ import (
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/domain"
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/repository"
 	"github.com/kelolakelas/kelolakelas-billing-service/pkg/academic"
-	"github.com/kelolakelas/kelolakelas-billing-service/pkg/flip"
 )
 
 type transactionUsecase struct {
@@ -23,7 +23,7 @@ type transactionUsecase struct {
 	walletRepo       repository.WalletRepository
 	ledgerRepo       repository.LedgerEntryRepository
 	subscriptionRepo repository.SubscriptionRepository
-	flipClient       flip.Client
+	paymentGateway   domain.PaymentGateway
 	academicClient   academic.Client
 	cfg              config.Config
 }
@@ -33,7 +33,7 @@ func NewTransactionUsecase(
 	walletRepo repository.WalletRepository,
 	ledgerRepo repository.LedgerEntryRepository,
 	subscriptionRepo repository.SubscriptionRepository,
-	flipClient flip.Client,
+	paymentGateway domain.PaymentGateway,
 	academicClient academic.Client,
 	cfg config.Config,
 ) TransactionUsecase {
@@ -42,7 +42,7 @@ func NewTransactionUsecase(
 		walletRepo:       walletRepo,
 		ledgerRepo:       ledgerRepo,
 		subscriptionRepo: subscriptionRepo,
-		flipClient:       flipClient,
+		paymentGateway:   paymentGateway,
 		academicClient:   academicClient,
 		cfg:              cfg,
 	}
@@ -72,30 +72,6 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 		title = fmt.Sprintf("Class Subscription Enrollment %s", req.EnrollmentID.String())
 	}
 
-	// 1. Call Flip API to create PWF bill link
-	flipReq := &flip.CreateBillRequest{
-		Title:       title,
-		Type:        "SINGLE",
-		Amount:      &grossAmount,
-		Step:        "checkout",
-		ReferenceID: req.EnrollmentID.String(),
-		SenderName:  req.SenderName,
-		SenderEmail: req.SenderEmail,
-		SenderPhone: req.SenderPhone,
-	}
-
-	flipResp, err := u.flipClient.CreateBill(ctx, flipReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate flip payment link: %w", err)
-	}
-
-	provider := "flip"
-	intentID := flipResp.LinkID
-	checkoutURL := flipResp.LinkURL
-	if intentID == "" || checkoutURL == "" {
-		return nil, fmt.Errorf("flip response did not contain bill link data")
-	}
-
 	nextBillingDate, err := nextBillingDate(time.Now(), req.BillingCycle)
 	if err != nil {
 		return nil, err
@@ -111,10 +87,14 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 		return nil, fmt.Errorf("failed to create subscription: %w", err)
 	}
 
-	// 2. Create Transaction record in DB
+	provider := "duitku"
+	transactionID := uuid.New()
 	tx := &domain.Transaction{
-		ID:                     uuid.New(),
+		ID:                     transactionID,
+		MerchantOrderID:        transactionID.String(),
 		TenantID:               req.TenantID,
+		ParentID:               req.ParentID,
+		StudentID:              req.StudentID,
 		EnrollmentID:           req.EnrollmentID,
 		VoucherID:              req.VoucherID,
 		SubtotalAmount:         req.SubtotalAmount,
@@ -126,50 +106,100 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 		SubscriptionID:         &subscription.ID,
 		Currency:               "IDR",
 		Status:                 "pending",
-		IsSandbox:              u.cfg.FlipBaseURL != "" && strings.Contains(u.cfg.FlipBaseURL, "sandbox"),
+		IsSandbox:              strings.Contains(strings.ToLower(u.cfg.DuitkuAPIBaseURL), "sandbox"),
 		PaymentGatewayProvider: &provider,
-		PaymentIntentID:        &intentID,
-		CheckoutSessionURL:     &checkoutURL,
 	}
 
 	if err := u.txRepo.Create(ctx, tx); err != nil {
 		return nil, fmt.Errorf("failed to create transaction record: %w", err)
 	}
 
+	invoice, err := u.paymentGateway.CreateInvoice(ctx, &domain.CreateInvoiceRequest{
+		MerchantOrderID: transactionID.String(),
+		Amount:          grossAmount,
+		ProductDetails:  title,
+		Email:           req.SenderEmail,
+		PhoneNumber:     req.SenderPhone,
+		CustomerVAName:  req.SenderName,
+		PaymentMethod:   "VC",
+		CallbackURL:     u.cfg.DuitkuCallbackURL,
+		ReturnURL:       u.cfg.DuitkuReturnURL,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate Duitku payment link: %w", err)
+	}
+	tx.PaymentIntentID = &invoice.Reference
+	tx.CheckoutSessionURL = &invoice.PaymentURL
+	if err := u.txRepo.Update(ctx, tx); err != nil {
+		return nil, fmt.Errorf("failed to save Duitku payment details: %w", err)
+	}
+
 	return &domain.GenerateSubscriptionPaymentResponse{
 		TransactionID:      tx.ID,
-		CheckoutSessionURL: checkoutURL,
-		PaymentIntentID:    intentID,
+		CheckoutSessionURL: invoice.PaymentURL,
+		PaymentIntentID:    invoice.Reference,
 		GrossAmount:        grossAmount,
 		Status:             tx.Status,
 	}, nil
 }
 
-func (u *transactionUsecase) HandleFlipWebhook(ctx context.Context, payload *domain.FlipWebhookPayload, validationToken string) error {
-	// 1. Validate signature / token against FLIP_VALIDATION_TOKEN
-	expectedToken := u.cfg.FlipValidationToken
-	tokenToValidate := validationToken
-	if tokenToValidate == "" {
-		tokenToValidate = payload.Token
+func transactionResponse(tx *domain.Transaction) *domain.TransactionResponse {
+	provider := ""
+	if tx.PaymentGatewayProvider != nil {
+		provider = *tx.PaymentGatewayProvider
 	}
-
-	if expectedToken == "" || subtle.ConstantTimeCompare([]byte(tokenToValidate), []byte(expectedToken)) != 1 {
-		return domain.ErrInvalidWebhookToken
+	intent := ""
+	if tx.PaymentIntentID != nil {
+		intent = *tx.PaymentIntentID
 	}
-
-	// 2. Parse bill data
-	billData, err := payload.ParseBillData()
+	checkout := ""
+	if tx.CheckoutSessionURL != nil {
+		checkout = *tx.CheckoutSessionURL
+	}
+	return &domain.TransactionResponse{ID: tx.ID, MerchantOrderID: tx.MerchantOrderID, TenantID: tx.TenantID, ParentID: tx.ParentID, StudentID: tx.StudentID, EnrollmentID: tx.EnrollmentID, VoucherID: tx.VoucherID, SubtotalAmount: tx.SubtotalAmount, DiscountAmount: tx.DiscountAmount, GrossAmount: tx.GrossAmount, PlatformFee: tx.PlatformFee, PaymentGatewayFee: tx.PaymentGatewayFee, NetAmount: tx.NetAmount, Currency: tx.Currency, Status: tx.Status, PaymentGatewayProvider: provider, PaymentIntentID: intent, CheckoutSessionURL: checkout, PaidAt: tx.PaidAt, CreatedAt: tx.CreatedAt, UpdatedAt: tx.UpdatedAt}
+}
+func (u *transactionUsecase) List(ctx context.Context, tenantID, parentID *uuid.UUID, query domain.TransactionQuery) (*domain.TransactionListResponse, error) {
+	if query.Page < 1 {
+		query.Page = 1
+	}
+	if query.PageSize < 1 || query.PageSize > 100 {
+		query.PageSize = 20
+	}
+	items, total, err := u.txRepo.List(ctx, tenantID, parentID, query)
 	if err != nil {
-		return fmt.Errorf("invalid webhook payload data: %w", err)
+		return nil, err
 	}
-
-	// 3. Find transaction by PaymentIntentID
-	intentID := billData.BillLinkID
-	if intentID == "" {
-		intentID = billData.ID
+	out := make([]domain.TransactionResponse, 0, len(items))
+	for i := range items {
+		out = append(out, *transactionResponse(&items[i]))
 	}
+	return &domain.TransactionListResponse{Items: out, Pagination: struct {
+		Page       int   `json:"page"`
+		PageSize   int   `json:"page_size"`
+		TotalItems int64 `json:"total_items"`
+		TotalPages int   `json:"total_pages"`
+	}{query.Page, query.PageSize, total, int(math.Ceil(float64(total) / float64(query.PageSize)))}}, nil
+}
+func (u *transactionUsecase) GetByIDScoped(ctx context.Context, tenantID, parentID *uuid.UUID, id uuid.UUID) (*domain.TransactionResponse, error) {
+	tx, err := u.txRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if tenantID != nil && tx.TenantID != *tenantID {
+		return nil, gorm.ErrRecordNotFound
+	}
+	if parentID != nil && tx.ParentID != *parentID {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return transactionResponse(tx), nil
+}
 
-	tx, err := u.txRepo.GetByPaymentIntentID(ctx, intentID)
+func (u *transactionUsecase) HandleDuitkuWebhook(ctx context.Context, payload *domain.DuitkuCallbackPayload) error {
+	transactionID, err := uuid.Parse(payload.MerchantOrderID)
+	if err != nil {
+		return domain.ErrTransactionNotFound
+	}
+	tx, err := u.txRepo.GetByID(ctx, transactionID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return domain.ErrTransactionNotFound
@@ -182,13 +212,20 @@ func (u *transactionUsecase) HandleFlipWebhook(ctx context.Context, payload *dom
 		return nil
 	}
 
-	// 5. If status is SUCCESS or PAID
-	if billData.Status == "SUCCESS" || billData.Status == "PAID" {
+	amount, err := strconv.ParseInt(payload.Amount, 10, 64)
+	if err != nil || amount != tx.GrossAmount {
+		return fmt.Errorf("callback amount does not match transaction")
+	}
+
+	if payload.ResultCode == "00" {
 		now := time.Now()
 		tx.Status = "paid"
 		tx.PaidAt = &now
-		if billData.SenderBank != "" {
-			tx.PaymentMethod = &billData.SenderBank
+		if payload.PaymentCode != "" {
+			tx.PaymentMethod = &payload.PaymentCode
+		}
+		if payload.Reference != "" {
+			tx.PaymentIntentID = &payload.Reference
 		}
 
 		if err := u.txRepo.Update(ctx, tx); err != nil {
@@ -212,8 +249,7 @@ func (u *transactionUsecase) HandleFlipWebhook(ctx context.Context, payload *dom
 			}
 		}
 
-		// Sandbox callbacks are useful for transaction state tests but must never
-		// create real tenant balance or ledger entries.
+		// Sandbox callbacks must never create real tenant balance or ledger entries.
 		if tx.IsSandbox {
 			return u.academicClient.UpdateEnrollmentStatus(ctx, tx.EnrollmentID, "active")
 		}
@@ -260,7 +296,7 @@ func (u *transactionUsecase) HandleFlipWebhook(ctx context.Context, payload *dom
 		if err := u.academicClient.UpdateEnrollmentStatus(ctx, tx.EnrollmentID, "active"); err != nil {
 			return fmt.Errorf("failed to update enrollment status in academic service: %w", err)
 		}
-	} else if billData.Status == "FAILED" || billData.Status == "EXPIRED" {
+	} else if payload.ResultCode == "01" || payload.ResultCode == "02" {
 		tx.Status = "failed"
 		if err := u.txRepo.Update(ctx, tx); err != nil {
 			return fmt.Errorf("failed to update transaction status to failed: %w", err)

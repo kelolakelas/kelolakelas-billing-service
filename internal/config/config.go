@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 
@@ -9,16 +10,19 @@ import (
 )
 
 type Config struct {
-	DBHost              string `mapstructure:"DB_HOST"`
-	DBPort              string `mapstructure:"DB_PORT"`
-	DBUser              string `mapstructure:"DB_USER"`
-	DBPassword          string `mapstructure:"DB_PASSWORD"`
-	DBName              string `mapstructure:"DB_NAME"`
-	Port                string `mapstructure:"PORT"`
-	FlipBaseURL         string `mapstructure:"FLIP_BASE_URL"`
-	FlipAPISecretKey    string `mapstructure:"FLIP_API_SECRET_KEY"`
-	FlipValidationToken string `mapstructure:"FLIP_VALIDATION_TOKEN"`
-	AcademicServiceURL  string `mapstructure:"ACADEMIC_SERVICE_URL"`
+	DBHost             string `mapstructure:"DB_HOST"`
+	DBPort             string `mapstructure:"DB_PORT"`
+	DBUser             string `mapstructure:"DB_USER"`
+	DBPassword         string `mapstructure:"DB_PASSWORD"`
+	DBName             string `mapstructure:"DB_NAME"`
+	Port               string `mapstructure:"PORT"`
+	DuitkuAPIBaseURL   string `mapstructure:"DUITKU_API_BASE_URL"`
+	DuitkuAPIKey       string `mapstructure:"DUITKU_API_KEY"`
+	DuitkuMerchantCode string `mapstructure:"DUITKU_MERCHANT_CODE"`
+	DuitkuCallbackURL  string `mapstructure:"DUITKU_CALLBACK_URL"`
+	DuitkuReturnURL    string `mapstructure:"DUITKU_RETURN_URL"`
+	AcademicServiceURL string `mapstructure:"ACADEMIC_SERVICE_URL"`
+	JWTSecret          string `mapstructure:"JWT_SECRET"`
 }
 
 func LoadConfig() (Config, error) {
@@ -59,11 +63,20 @@ func LoadConfig() (Config, error) {
 	if config.Port == "" {
 		config.Port = "8082"
 	}
-	if config.FlipBaseURL == "" {
-		config.FlipBaseURL = "https://bigflip.id/big_sandbox_api"
+	if config.DuitkuAPIBaseURL == "" {
+		config.DuitkuAPIBaseURL = "https://sandbox.duitku.com/webapi/api/merchant"
+	}
+	if config.DuitkuCallbackURL == "" {
+		config.DuitkuCallbackURL = "http://localhost:" + config.Port + "/api/v1/billing/webhooks/duitku"
+	}
+	if config.DuitkuReturnURL == "" {
+		config.DuitkuReturnURL = config.DuitkuCallbackURL
 	}
 	if config.AcademicServiceURL == "" {
 		config.AcademicServiceURL = "http://localhost:8081"
+	}
+	if config.JWTSecret == "" {
+		return Config{}, fmt.Errorf("JWT_SECRET is required")
 	}
 
 	return config, nil

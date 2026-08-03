@@ -44,6 +44,7 @@ type TransactionRepository interface {
 	Create(ctx context.Context, transaction *domain.Transaction) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Transaction, error)
 	GetByPaymentIntentID(ctx context.Context, paymentIntentID string) (*domain.Transaction, error)
+	List(ctx context.Context, tenantID *uuid.UUID, parentID *uuid.UUID, query domain.TransactionQuery) ([]domain.Transaction, int64, error)
 	Update(ctx context.Context, transaction *domain.Transaction) error
 }
 

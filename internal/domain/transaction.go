@@ -9,14 +9,18 @@ import (
 )
 
 var (
-	ErrInvalidWebhookToken    = errors.New("invalid flip validation token")
-	ErrTransactionNotFound    = errors.New("transaction not found")
-	ErrTransactionAlreadyPaid = errors.New("transaction already paid")
+	ErrInvalidWebhookSignature  = errors.New("invalid Duitku callback signature")
+	ErrTransactionNotFound      = errors.New("transaction not found")
+	ErrTransactionAlreadyPaid   = errors.New("transaction already paid")
+	ErrInvalidTransactionStatus = errors.New("invalid transaction status")
 )
 
 type Transaction struct {
 	ID                     uuid.UUID      `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	MerchantOrderID        string         `gorm:"type:varchar(255);unique;not null" json:"merchant_order_id"`
 	TenantID               uuid.UUID      `gorm:"type:uuid;not null;index" json:"tenant_id"`     // Cross-service
+	ParentID               uuid.UUID      `gorm:"type:uuid;not null;index" json:"parent_id"`     // Cross-service
+	StudentID              uuid.UUID      `gorm:"type:uuid;not null;index" json:"student_id"`    // Cross-service
 	EnrollmentID           uuid.UUID      `gorm:"type:uuid;not null;index" json:"enrollment_id"` // Cross-service
 	VoucherID              *uuid.UUID     `gorm:"type:uuid;index" json:"voucher_id,omitempty"`   // In-service
 	SubtotalAmount         int64          `gorm:"type:bigint;not null" json:"subtotal_amount"`
@@ -29,7 +33,7 @@ type Transaction struct {
 	Currency               string         `gorm:"type:varchar(50);not null;default:'IDR'" json:"currency"`
 	Status                 string         `gorm:"type:varchar(255);not null" json:"status"`
 	IsSandbox              bool           `gorm:"type:boolean;not null;default:false" json:"is_sandbox"`
-	PaymentGatewayProvider *string        `gorm:"type:varchar(255)" json:"payment_gateway_provider,omitempty"`
+	PaymentGatewayProvider *string        `gorm:"type:varchar(255);default:'duitku'" json:"payment_gateway_provider,omitempty"`
 	PaymentMethod          *string        `gorm:"type:varchar(255)" json:"payment_method,omitempty"`
 	PaymentIntentID        *string        `gorm:"type:varchar(255);unique;index" json:"payment_intent_id,omitempty"`
 	CheckoutSessionURL     *string        `gorm:"type:text" json:"checkout_session_url,omitempty"`
@@ -69,7 +73,10 @@ type GenerateSubscriptionPaymentResponse struct {
 
 type TransactionResponse struct {
 	ID                     uuid.UUID  `json:"id"`
+	MerchantOrderID        string     `json:"merchant_order_id"`
 	TenantID               uuid.UUID  `json:"tenant_id"`
+	ParentID               uuid.UUID  `json:"parent_id"`
+	StudentID              uuid.UUID  `json:"student_id"`
 	EnrollmentID           uuid.UUID  `json:"enrollment_id"`
 	VoucherID              *uuid.UUID `json:"voucher_id,omitempty"`
 	SubtotalAmount         int64      `json:"subtotal_amount"`
@@ -86,6 +93,28 @@ type TransactionResponse struct {
 	PaidAt                 *time.Time `json:"paid_at,omitempty"`
 	CreatedAt              time.Time  `json:"created_at"`
 	UpdatedAt              time.Time  `json:"updated_at"`
+}
+
+type TransactionQuery struct {
+	Page         int
+	PageSize     int
+	Status       string
+	TenantID     *uuid.UUID
+	ParentID     *uuid.UUID
+	StudentID    *uuid.UUID
+	EnrollmentID *uuid.UUID
+	DateFrom     *time.Time
+	DateTo       *time.Time
+	Search       string
+}
+type TransactionListResponse struct {
+	Items      []TransactionResponse `json:"items"`
+	Pagination struct {
+		Page       int   `json:"page"`
+		PageSize   int   `json:"page_size"`
+		TotalItems int64 `json:"total_items"`
+		TotalPages int   `json:"total_pages"`
+	} `json:"pagination"`
 }
 
 type HTTPResponse struct {
