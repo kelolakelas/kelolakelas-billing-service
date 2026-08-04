@@ -3,13 +3,16 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
+	"strings"
 
 	"github.com/joho/godotenv"
 	"github.com/spf13/viper"
 )
 
 type Config struct {
+	DatabaseURL        string `mapstructure:"DATABASE_URL"`
 	DBHost             string `mapstructure:"DB_HOST"`
 	DBPort             string `mapstructure:"DB_PORT"`
 	DBSSLMode          string `mapstructure:"DB_SSLMODE"`
@@ -40,15 +43,21 @@ func LoadConfig() (Config, error) {
 	}
 
 	viper.AutomaticEnv()
-	if err := viper.BindEnv("DB_SSLMODE"); err != nil {
-		return Config{}, err
-	}
-	if err := viper.BindEnv("JWT_SECRET"); err != nil {
-		return Config{}, err
+	for _, key := range []string{
+		"DATABASE_URL", "DB_HOST", "DB_PORT", "DB_SSLMODE", "DB_USER", "DB_PASSWORD", "DB_NAME",
+		"PORT", "DUITKU_API_BASE_URL", "DUITKU_API_KEY", "DUITKU_MERCHANT_CODE",
+		"DUITKU_CALLBACK_URL", "DUITKU_RETURN_URL", "ACADEMIC_SERVICE_URL", "JWT_SECRET",
+	} {
+		if err := viper.BindEnv(key); err != nil {
+			return Config{}, err
+		}
 	}
 
 	var config Config
 	if err := viper.Unmarshal(&config); err != nil {
+		return Config{}, err
+	}
+	if err := applyDatabaseURL(&config); err != nil {
 		return Config{}, err
 	}
 
@@ -90,4 +99,36 @@ func LoadConfig() (Config, error) {
 	}
 
 	return config, nil
+}
+
+func applyDatabaseURL(config *Config) error {
+	if config.DatabaseURL == "" {
+		return nil
+	}
+	databaseURL, err := url.Parse(config.DatabaseURL)
+	if err != nil || (databaseURL.Scheme != "postgres" && databaseURL.Scheme != "postgresql") || databaseURL.Hostname() == "" || databaseURL.Path == "" {
+		return fmt.Errorf("DATABASE_URL must be a valid PostgreSQL URL")
+	}
+	if config.DBHost == "" {
+		config.DBHost = databaseURL.Hostname()
+	}
+	if config.DBPort == "" {
+		config.DBPort = databaseURL.Port()
+		if config.DBPort == "" {
+			config.DBPort = "5432"
+		}
+	}
+	if config.DBUser == "" && databaseURL.User != nil {
+		config.DBUser = databaseURL.User.Username()
+	}
+	if config.DBPassword == "" && databaseURL.User != nil {
+		config.DBPassword, _ = databaseURL.User.Password()
+	}
+	if config.DBName == "" {
+		config.DBName = strings.TrimPrefix(databaseURL.Path, "/")
+	}
+	if config.DBSSLMode == "" {
+		config.DBSSLMode = databaseURL.Query().Get("sslmode")
+	}
+	return nil
 }
