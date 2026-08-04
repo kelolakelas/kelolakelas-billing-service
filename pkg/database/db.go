@@ -9,9 +9,8 @@ import (
 	"gorm.io/gorm"
 )
 
-func NewPostgresDB(host, port, user, password, dbname string) (*gorm.DB, error) {
-	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable TimeZone=UTC",
-		host, user, password, dbname, port)
+func NewPostgresDB(host, port, user, password, dbname, sslMode string) (*gorm.DB, error) {
+	dsn := buildPostgresDSN(host, port, user, password, dbname, sslMode)
 
 	slog.Info("Connecting to PostgreSQL", "dsn", fmt.Sprintf("host=%s user=%s dbname=%s port=%s", host, user, dbname, port))
 
@@ -30,4 +29,9 @@ func NewPostgresDB(host, port, user, password, dbname string) (*gorm.DB, error) 
 	sqlDB.SetConnMaxLifetime(time.Hour)
 
 	return db, nil
+}
+
+func buildPostgresDSN(host, port, user, password, dbname, sslMode string) string {
+	return fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=%s TimeZone=UTC",
+		host, user, password, dbname, port, sslMode)
 }
