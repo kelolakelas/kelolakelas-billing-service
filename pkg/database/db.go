@@ -9,8 +9,8 @@ import (
 	"gorm.io/gorm"
 )
 
-func NewPostgresDB(host, port, user, password, dbname, sslMode string) (*gorm.DB, error) {
-	dsn := buildPostgresDSN(host, port, user, password, dbname, sslMode)
+func NewPostgresDB(host, port, user, password, dbname, sslMode, channelBinding string) (*gorm.DB, error) {
+	dsn := buildPostgresDSN(host, port, user, password, dbname, sslMode, channelBinding)
 
 	slog.Info("Connecting to PostgreSQL", "dsn", fmt.Sprintf("host=%s user=%s dbname=%s port=%s", host, user, dbname, port))
 
@@ -31,7 +31,7 @@ func NewPostgresDB(host, port, user, password, dbname, sslMode string) (*gorm.DB
 	return db, nil
 }
 
-func buildPostgresDSN(host, port, user, password, dbname, sslMode string) string {
-	return fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=%s TimeZone=UTC",
-		host, user, password, dbname, port, sslMode)
+func buildPostgresDSN(host, port, user, password, dbname, sslMode, channelBinding string) string {
+	return fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=%s channel_binding=%s TimeZone=UTC",
+		host, user, password, dbname, port, sslMode, channelBinding)
 }

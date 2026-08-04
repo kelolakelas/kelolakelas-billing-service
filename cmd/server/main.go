@@ -40,7 +40,7 @@ func main() {
 	}
 
 	// Initialize DB Connection
-	db, err := database.NewPostgresDB(cfg.DBHost, cfg.DBPort, cfg.DBUser, cfg.DBPassword, cfg.DBName, cfg.DBSSLMode)
+	db, err := database.NewPostgresDB(cfg.DBHost, cfg.DBPort, cfg.DBUser, cfg.DBPassword, cfg.DBName, cfg.DBSSLMode, cfg.DBChannelBinding)
 	if err != nil {
 		slog.Error("Database connection failed", "error", err)
 		os.Exit(1)
