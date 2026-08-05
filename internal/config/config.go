@@ -74,6 +74,9 @@ func LoadConfig() (Config, error) {
 	if config.DBChannelBinding == "" {
 		config.DBChannelBinding = "disable"
 	}
+	if err := validateChannelBinding(config.DBChannelBinding); err != nil {
+		return Config{}, err
+	}
 	if config.DBUser == "" {
 		config.DBUser = "postgres"
 	}
@@ -138,4 +141,13 @@ func applyDatabaseURL(config *Config) error {
 		config.DBChannelBinding = databaseURL.Query().Get("channel_binding")
 	}
 	return nil
+}
+
+func validateChannelBinding(value string) error {
+	switch value {
+	case "disable", "prefer", "require":
+		return nil
+	default:
+		return fmt.Errorf("DB_CHANNEL_BINDING must be one of disable, prefer, or require")
+	}
 }

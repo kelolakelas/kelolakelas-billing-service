@@ -10,15 +10,20 @@ func TestBuildPostgresDSN(t *testing.T) {
 		name     string
 		sslMode  string
 		binding  string
-		expected string
+		contains string
+		absent   string
 	}{
-		{name: "local development", sslMode: "disable", binding: "disable", expected: "sslmode=disable channel_binding=disable"},
-		{name: "neon", sslMode: "require", binding: "require", expected: "sslmode=require channel_binding=require"},
+		{name: "local development", sslMode: "disable", binding: "disable", contains: "sslmode=disable", absent: "channel_binding="},
+		{name: "empty binding", sslMode: "disable", binding: "", contains: "sslmode=disable", absent: "channel_binding="},
+		{name: "neon", sslMode: "require", binding: "require", contains: "sslmode=require channel_binding=require"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			dsn := buildPostgresDSN("host", "5432", "user", "password", "db", test.sslMode, test.binding)
-			if !strings.Contains(dsn, test.expected) {
-				t.Fatalf("dsn=%q, expected %q", dsn, test.expected)
+			if !strings.Contains(dsn, test.contains) {
+				t.Fatalf("dsn=%q, expected to contain %q", dsn, test.contains)
+			}
+			if test.absent != "" && strings.Contains(dsn, test.absent) {
+				t.Fatalf("dsn=%q, expected not to contain %q", dsn, test.absent)
 			}
 		})
 	}

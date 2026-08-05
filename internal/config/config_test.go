@@ -84,6 +84,30 @@ func TestChannelBindingEnvironmentOverridesDatabaseURL(t *testing.T) {
 	}
 }
 
+func TestLoadConfigRejectsInvalidChannelBinding(t *testing.T) {
+	viper.Reset()
+	t.Chdir(t.TempDir())
+	t.Setenv("JWT_SECRET", "test-secret")
+	t.Setenv("DB_CHANNEL_BINDING", "invalid")
+	if _, err := LoadConfig(); err == nil {
+		t.Fatal("expected invalid channel binding configuration error")
+	}
+}
+
+func TestLoadConfigReadsDisabledChannelBindingFromDatabaseURL(t *testing.T) {
+	viper.Reset()
+	t.Chdir(t.TempDir())
+	t.Setenv("JWT_SECRET", "test-secret")
+	t.Setenv("DATABASE_URL", "postgres://user:password@localhost/db?sslmode=disable&channel_binding=disable")
+	config, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.DBChannelBinding != "disable" {
+		t.Fatalf("channel binding=%q, want disable", config.DBChannelBinding)
+	}
+}
+
 func TestLoadConfigRequiresJWTSecret(t *testing.T) {
 	viper.Reset()
 	t.Chdir(t.TempDir())
