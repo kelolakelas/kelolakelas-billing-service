@@ -12,22 +12,23 @@ import (
 )
 
 type Config struct {
-	DatabaseURL        string `mapstructure:"DATABASE_URL"`
-	DBHost             string `mapstructure:"DB_HOST"`
-	DBPort             string `mapstructure:"DB_PORT"`
-	DBSSLMode          string `mapstructure:"DB_SSLMODE"`
-	DBChannelBinding   string `mapstructure:"DB_CHANNEL_BINDING"`
-	DBUser             string `mapstructure:"DB_USER"`
-	DBPassword         string `mapstructure:"DB_PASSWORD"`
-	DBName             string `mapstructure:"DB_NAME"`
-	Port               string `mapstructure:"PORT"`
-	DuitkuAPIBaseURL   string `mapstructure:"DUITKU_API_BASE_URL"`
-	DuitkuAPIKey       string `mapstructure:"DUITKU_API_KEY"`
-	DuitkuMerchantCode string `mapstructure:"DUITKU_MERCHANT_CODE"`
-	DuitkuCallbackURL  string `mapstructure:"DUITKU_CALLBACK_URL"`
-	DuitkuReturnURL    string `mapstructure:"DUITKU_RETURN_URL"`
-	AcademicServiceURL string `mapstructure:"ACADEMIC_SERVICE_URL"`
-	JWTSecret          string `mapstructure:"JWT_SECRET"`
+	DatabaseURL               string `mapstructure:"DATABASE_URL"`
+	DBHost                    string `mapstructure:"DB_HOST"`
+	DBPort                    string `mapstructure:"DB_PORT"`
+	DBSSLMode                 string `mapstructure:"DB_SSLMODE"`
+	DBChannelBinding          string `mapstructure:"DB_CHANNEL_BINDING"`
+	DBUser                    string `mapstructure:"DB_USER"`
+	DBPassword                string `mapstructure:"DB_PASSWORD"`
+	DBName                    string `mapstructure:"DB_NAME"`
+	Port                      string `mapstructure:"PORT"`
+	DuitkuAPIBaseURL          string `mapstructure:"DUITKU_API_BASE_URL"`
+	DuitkuAPIKey              string `mapstructure:"DUITKU_API_KEY"`
+	DuitkuMerchantCode        string `mapstructure:"DUITKU_MERCHANT_CODE"`
+	DuitkuCallbackURL         string `mapstructure:"DUITKU_CALLBACK_URL"`
+	DuitkuReturnURL           string `mapstructure:"DUITKU_RETURN_URL"`
+	AcademicServiceURL        string `mapstructure:"ACADEMIC_SERVICE_URL"`
+	InternalServiceCredential string `mapstructure:"INTERNAL_SERVICE_CREDENTIAL"`
+	JWTSecret                 string `mapstructure:"JWT_SECRET"`
 }
 
 func LoadConfig() (Config, error) {
@@ -47,7 +48,7 @@ func LoadConfig() (Config, error) {
 	for _, key := range []string{
 		"DATABASE_URL", "DB_HOST", "DB_PORT", "DB_SSLMODE", "DB_CHANNEL_BINDING", "DB_USER", "DB_PASSWORD", "DB_NAME",
 		"PORT", "DUITKU_API_BASE_URL", "DUITKU_API_KEY", "DUITKU_MERCHANT_CODE",
-		"DUITKU_CALLBACK_URL", "DUITKU_RETURN_URL", "ACADEMIC_SERVICE_URL", "JWT_SECRET",
+		"DUITKU_CALLBACK_URL", "DUITKU_RETURN_URL", "ACADEMIC_SERVICE_URL", "INTERNAL_SERVICE_CREDENTIAL", "JWT_SECRET",
 	} {
 		if err := viper.BindEnv(key); err != nil {
 			return Config{}, err
@@ -103,6 +104,9 @@ func LoadConfig() (Config, error) {
 	}
 	if config.JWTSecret == "" {
 		return Config{}, fmt.Errorf("JWT_SECRET is required")
+	}
+	if config.InternalServiceCredential == "" {
+		return Config{}, fmt.Errorf("INTERNAL_SERVICE_CREDENTIAL is required")
 	}
 
 	return config, nil

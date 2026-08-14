@@ -57,6 +57,13 @@ func (u *transactionUsecase) GetTransaction(ctx context.Context, id uuid.UUID) (
 }
 
 func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, req *domain.GenerateSubscriptionPaymentRequest) (*domain.GenerateSubscriptionPaymentResponse, error) {
+	if existing, err := u.txRepo.GetByEnrollmentID(ctx, req.EnrollmentID); err == nil {
+		if existing.CheckoutSessionURL != nil && *existing.CheckoutSessionURL != "" {
+			return &domain.GenerateSubscriptionPaymentResponse{TransactionID: existing.ID, CheckoutSessionURL: *existing.CheckoutSessionURL, PaymentIntentID: valueOrEmpty(existing.PaymentIntentID), GrossAmount: existing.GrossAmount, Status: existing.Status}, nil
+		}
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, fmt.Errorf("failed to find existing enrollment payment: %w", err)
+	}
 	grossAmount := req.SubtotalAmount - req.DiscountAmount
 	if grossAmount <= 0 {
 		return nil, fmt.Errorf("gross_amount must be greater than 0")
@@ -81,14 +88,16 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 		EnrollmentID:    req.EnrollmentID,
 		BillingCycle:    req.BillingCycle,
 		NextBillingDate: nextBillingDate,
-		Status:          "active",
+		Status:          "pending",
 	}
-	if err := u.subscriptionRepo.Create(ctx, subscription); err != nil {
+	if existing, err := u.subscriptionRepo.GetByEnrollmentID(ctx, req.EnrollmentID); err == nil {
+		subscription = existing
+	} else if err := u.subscriptionRepo.Create(ctx, subscription); err != nil {
 		return nil, fmt.Errorf("failed to create subscription: %w", err)
 	}
 
 	provider := "duitku"
-	transactionID := uuid.New()
+	transactionID := req.EnrollmentID
 	tx := &domain.Transaction{
 		ID:                     transactionID,
 		MerchantOrderID:        transactionID.String(),
@@ -110,7 +119,10 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 		PaymentGatewayProvider: &provider,
 	}
 
-	if err := u.txRepo.Create(ctx, tx); err != nil {
+	if existing, err := u.txRepo.GetByEnrollmentID(ctx, req.EnrollmentID); err == nil {
+		tx = existing
+		tx.SubscriptionID = &subscription.ID
+	} else if err := u.txRepo.Create(ctx, tx); err != nil {
 		return nil, fmt.Errorf("failed to create transaction record: %w", err)
 	}
 
@@ -141,6 +153,13 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 		GrossAmount:        grossAmount,
 		Status:             tx.Status,
 	}, nil
+}
+
+func valueOrEmpty(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func transactionResponse(tx *domain.Transaction) *domain.TransactionResponse {
@@ -207,9 +226,9 @@ func (u *transactionUsecase) HandleDuitkuWebhook(ctx context.Context, payload *d
 		return fmt.Errorf("failed to fetch transaction: %w", err)
 	}
 
-	// 4. Idempotency check: if already paid, return early
+	// A paid transaction still needs activation reconciliation on callback replay.
 	if tx.Status == "paid" {
-		return nil
+		return u.academicClient.ActivateEnrollment(ctx, tx.EnrollmentID)
 	}
 
 	amount, err := strconv.ParseInt(payload.Amount, 10, 64)
@@ -238,6 +257,7 @@ func (u *transactionUsecase) HandleDuitkuWebhook(ctx context.Context, payload *d
 				return fmt.Errorf("failed to fetch subscription: %w", getErr)
 			}
 			if subscription != nil {
+				subscription.Status = "active"
 				nextDate, dateErr := nextBillingDate(now, subscription.BillingCycle)
 				if dateErr != nil {
 					return dateErr
@@ -251,7 +271,7 @@ func (u *transactionUsecase) HandleDuitkuWebhook(ctx context.Context, payload *d
 
 		// Sandbox callbacks must never create real tenant balance or ledger entries.
 		if tx.IsSandbox {
-			return u.academicClient.UpdateEnrollmentStatus(ctx, tx.EnrollmentID, "active")
+			return u.academicClient.ActivateEnrollment(ctx, tx.EnrollmentID)
 		}
 
 		// 6. Credit Tenant Wallet
@@ -293,7 +313,7 @@ func (u *transactionUsecase) HandleDuitkuWebhook(ctx context.Context, payload *d
 		}
 
 		// 7. Trigger status update for Enrollments record to 'active' in academic-service
-		if err := u.academicClient.UpdateEnrollmentStatus(ctx, tx.EnrollmentID, "active"); err != nil {
+		if err := u.academicClient.ActivateEnrollment(ctx, tx.EnrollmentID); err != nil {
 			return fmt.Errorf("failed to update enrollment status in academic service: %w", err)
 		}
 	} else if payload.ResultCode == "01" || payload.ResultCode == "02" {

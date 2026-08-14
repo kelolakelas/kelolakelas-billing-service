@@ -63,7 +63,7 @@ func main() {
 
 	// Initialize Clients
 	duitkuClient := duitku.NewClient(cfg.DuitkuAPIBaseURL, cfg.DuitkuAPIKey, cfg.DuitkuMerchantCode, nil)
-	academicClient := academic.NewClient(cfg.AcademicServiceURL)
+	academicClient := academic.NewClient(cfg.AcademicServiceURL, cfg.InternalServiceCredential)
 
 	// Initialize Repositories
 	txRepo := repository.NewTransactionRepository(db)

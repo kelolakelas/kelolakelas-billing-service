@@ -29,6 +29,14 @@ func (r *transactionRepository) GetByID(ctx context.Context, id uuid.UUID) (*dom
 	return &tx, nil
 }
 
+func (r *transactionRepository) GetByEnrollmentID(ctx context.Context, enrollmentID uuid.UUID) (*domain.Transaction, error) {
+	var tx domain.Transaction
+	if err := r.db.WithContext(ctx).Where("enrollment_id = ?", enrollmentID).Order("created_at DESC").First(&tx).Error; err != nil {
+		return nil, err
+	}
+	return &tx, nil
+}
+
 func (r *transactionRepository) GetByPaymentIntentID(ctx context.Context, paymentIntentID string) (*domain.Transaction, error) {
 	var tx domain.Transaction
 	if err := r.db.WithContext(ctx).First(&tx, "payment_intent_id = ?", paymentIntentID).Error; err != nil {
