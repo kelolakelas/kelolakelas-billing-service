@@ -12,23 +12,29 @@ import (
 )
 
 type Config struct {
-	DatabaseURL               string `mapstructure:"DATABASE_URL"`
-	DBHost                    string `mapstructure:"DB_HOST"`
-	DBPort                    string `mapstructure:"DB_PORT"`
-	DBSSLMode                 string `mapstructure:"DB_SSLMODE"`
-	DBChannelBinding          string `mapstructure:"DB_CHANNEL_BINDING"`
-	DBUser                    string `mapstructure:"DB_USER"`
-	DBPassword                string `mapstructure:"DB_PASSWORD"`
-	DBName                    string `mapstructure:"DB_NAME"`
-	Port                      string `mapstructure:"PORT"`
-	DuitkuAPIBaseURL          string `mapstructure:"DUITKU_API_BASE_URL"`
-	DuitkuAPIKey              string `mapstructure:"DUITKU_API_KEY"`
-	DuitkuMerchantCode        string `mapstructure:"DUITKU_MERCHANT_CODE"`
-	DuitkuCallbackURL         string `mapstructure:"DUITKU_CALLBACK_URL"`
-	DuitkuReturnURL           string `mapstructure:"DUITKU_RETURN_URL"`
-	AcademicServiceURL        string `mapstructure:"ACADEMIC_SERVICE_URL"`
-	InternalServiceCredential string `mapstructure:"INTERNAL_SERVICE_CREDENTIAL"`
-	JWTSecret                 string `mapstructure:"JWT_SECRET"`
+	DatabaseURL                             string `mapstructure:"DATABASE_URL"`
+	DBHost                                  string `mapstructure:"DB_HOST"`
+	DBPort                                  string `mapstructure:"DB_PORT"`
+	DBSSLMode                               string `mapstructure:"DB_SSLMODE"`
+	DBChannelBinding                        string `mapstructure:"DB_CHANNEL_BINDING"`
+	DBUser                                  string `mapstructure:"DB_USER"`
+	DBPassword                              string `mapstructure:"DB_PASSWORD"`
+	DBName                                  string `mapstructure:"DB_NAME"`
+	Port                                    string `mapstructure:"PORT"`
+	DuitkuAPIBaseURL                        string `mapstructure:"DUITKU_API_BASE_URL"`
+	DuitkuAPIKey                            string `mapstructure:"DUITKU_API_KEY"`
+	DuitkuMerchantCode                      string `mapstructure:"DUITKU_MERCHANT_CODE"`
+	DuitkuCallbackURL                       string `mapstructure:"DUITKU_CALLBACK_URL"`
+	DuitkuReturnURL                         string `mapstructure:"DUITKU_RETURN_URL"`
+	AcademicServiceURL                      string `mapstructure:"ACADEMIC_SERVICE_URL"`
+	InternalServiceCredential               string `mapstructure:"INTERNAL_SERVICE_CREDENTIAL"`
+	JWTSecret                               string `mapstructure:"JWT_SECRET"`
+	SubscriptionWorkerEnabled               bool   `mapstructure:"SUBSCRIPTION_WORKER_ENABLED"`
+	SubscriptionWorkerIntervalMinutes       int    `mapstructure:"SUBSCRIPTION_WORKER_INTERVAL_MINUTES"`
+	SubscriptionPaymentReminderIntervalDays int    `mapstructure:"SUBSCRIPTION_PAYMENT_REMINDER_INTERVAL_DAYS"`
+	SubscriptionPaymentExpiryPeriodDays     int    `mapstructure:"SUBSCRIPTION_PAYMENT_EXPIRY_PERIOD_DAYS"`
+	ResendAPIKey                            string `mapstructure:"RESEND_API_KEY"`
+	ResendFromEmail                         string `mapstructure:"RESEND_FROM_EMAIL"`
 }
 
 func LoadConfig() (Config, error) {
@@ -49,6 +55,7 @@ func LoadConfig() (Config, error) {
 		"DATABASE_URL", "DB_HOST", "DB_PORT", "DB_SSLMODE", "DB_CHANNEL_BINDING", "DB_USER", "DB_PASSWORD", "DB_NAME",
 		"PORT", "DUITKU_API_BASE_URL", "DUITKU_API_KEY", "DUITKU_MERCHANT_CODE",
 		"DUITKU_CALLBACK_URL", "DUITKU_RETURN_URL", "ACADEMIC_SERVICE_URL", "INTERNAL_SERVICE_CREDENTIAL", "JWT_SECRET",
+		"SUBSCRIPTION_WORKER_ENABLED", "SUBSCRIPTION_WORKER_INTERVAL_MINUTES", "SUBSCRIPTION_PAYMENT_REMINDER_INTERVAL_DAYS", "SUBSCRIPTION_PAYMENT_EXPIRY_PERIOD_DAYS", "RESEND_API_KEY", "RESEND_FROM_EMAIL",
 	} {
 		if err := viper.BindEnv(key); err != nil {
 			return Config{}, err
@@ -90,6 +97,15 @@ func LoadConfig() (Config, error) {
 	if config.Port == "" {
 		config.Port = "8082"
 	}
+	if config.SubscriptionWorkerIntervalMinutes == 0 {
+		config.SubscriptionWorkerIntervalMinutes = 1440
+	}
+	if config.SubscriptionPaymentReminderIntervalDays == 0 {
+		config.SubscriptionPaymentReminderIntervalDays = 3
+	}
+	if config.SubscriptionPaymentExpiryPeriodDays == 0 {
+		config.SubscriptionPaymentExpiryPeriodDays = 14
+	}
 	if config.DuitkuAPIBaseURL == "" {
 		config.DuitkuAPIBaseURL = "https://sandbox.duitku.com/webapi/api/merchant"
 	}
@@ -105,6 +121,7 @@ func LoadConfig() (Config, error) {
 	if config.JWTSecret == "" {
 		return Config{}, fmt.Errorf("JWT_SECRET is required")
 	}
+	config.InternalServiceCredential = strings.TrimSpace(config.InternalServiceCredential)
 	if config.InternalServiceCredential == "" {
 		return Config{}, fmt.Errorf("INTERNAL_SERVICE_CREDENTIAL is required")
 	}

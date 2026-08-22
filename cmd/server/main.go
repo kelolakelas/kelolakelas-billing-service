@@ -1,8 +1,13 @@
 package main
 
 import (
+	"context"
 	"log/slog"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	swaggerFiles "github.com/swaggo/files"
@@ -18,6 +23,7 @@ import (
 	"github.com/kelolakelas/kelolakelas-billing-service/pkg/academic"
 	"github.com/kelolakelas/kelolakelas-billing-service/pkg/database"
 	"github.com/kelolakelas/kelolakelas-billing-service/pkg/duitku"
+	"github.com/kelolakelas/kelolakelas-billing-service/pkg/email"
 )
 
 // @title KelolaKelas Billing Service API
@@ -70,9 +76,11 @@ func main() {
 	subscriptionRepo := repository.NewSubscriptionRepository(db)
 	walletRepo := repository.NewWalletRepository(db)
 	ledgerRepo := repository.NewLedgerEntryRepository(db)
+	txManager := repository.NewTransactionManager(db)
 
 	// Initialize Usecases
-	txUsecase := usecase.NewTransactionUsecase(txRepo, walletRepo, ledgerRepo, subscriptionRepo, duitkuClient, academicClient, cfg)
+	txUsecase := usecase.NewTransactionUsecase(txRepo, walletRepo, ledgerRepo, subscriptionRepo, duitkuClient, academicClient, cfg, txManager)
+	worker := usecase.NewSubscriptionWorker(subscriptionRepo, txRepo, duitkuClient, email.NewResendClient(cfg.ResendAPIKey, cfg.ResendFromEmail), cfg)
 
 	// Initialize Handlers
 	txHandler := handler.NewTransactionHandler(txUsecase, duitkuClient)
@@ -97,10 +105,26 @@ func main() {
 		protected.GET("/transactions", txHandler.List)
 		protected.GET("/transactions/:id", txHandler.Get)
 	}
+	internal := r.Group("/internal/billing")
+	internal.Use(middleware.InternalServiceAuth(cfg.InternalServiceCredential))
+	internal.POST("/transactions", txHandler.GenerateInternalSubscriptionPayment)
 
+	server := &http.Server{Addr: "0.0.0.0:" + cfg.Port, Handler: r}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	if cfg.SubscriptionWorkerEnabled {
+		go worker.Run(ctx)
+	}
 	slog.Info("Starting billing service", "port", cfg.Port)
-	if err := r.Run("0.0.0.0:" + cfg.Port); err != nil {
-		slog.Error("Failed to start billing service", "error", err)
-		os.Exit(1)
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("Failed to start billing service", "error", err)
+		}
+	}()
+	<-ctx.Done()
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		slog.Error("Failed to shutdown billing service", "error", err)
 	}
 }

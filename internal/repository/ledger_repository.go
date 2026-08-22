@@ -18,7 +18,7 @@ func NewLedgerEntryRepository(db *gorm.DB) LedgerEntryRepository {
 }
 
 func (r *ledgerEntryRepository) Create(ctx context.Context, entry *domain.LedgerEntry) error {
-	return r.db.WithContext(ctx).Create(entry).Error
+	return GetDB(ctx, r.db).Create(entry).Error
 }
 
 func (r *ledgerEntryRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.LedgerEntry, error) {

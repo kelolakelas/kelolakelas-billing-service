@@ -1,12 +1,27 @@
 package middleware
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
+
+func InternalServiceAuth(credential string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		expected := sha256.Sum256([]byte(credential))
+		provided := sha256.Sum256([]byte(c.GetHeader("X-Internal-Service-Credential")))
+		if credential == "" || subtle.ConstantTimeCompare(expected[:], provided[:]) != 1 {
+			c.JSON(http.StatusUnauthorized, gin.H{"status": "error", "message": "Invalid internal service credential", "data": nil})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
 
 type Claims struct {
 	UserID   string `json:"user_id"`

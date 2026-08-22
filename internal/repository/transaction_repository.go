@@ -2,9 +2,11 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/domain"
 )
@@ -18,15 +20,21 @@ func NewTransactionRepository(db *gorm.DB) TransactionRepository {
 }
 
 func (r *transactionRepository) Create(ctx context.Context, transaction *domain.Transaction) error {
-	return r.db.WithContext(ctx).Create(transaction).Error
+	return r.getDB(ctx).Create(transaction).Error
 }
 
 func (r *transactionRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Transaction, error) {
 	var tx domain.Transaction
-	if err := r.db.WithContext(ctx).First(&tx, "id = ?", id).Error; err != nil {
+	if err := r.getDB(ctx).First(&tx, "id = ?", id).Error; err != nil {
 		return nil, err
 	}
 	return &tx, nil
+}
+
+func (r *transactionRepository) GetByMerchantOrderID(ctx context.Context, merchantOrderID string) (*domain.Transaction, error) {
+	var tx domain.Transaction
+	err := r.getDB(ctx).First(&tx, "merchant_order_id = ?", merchantOrderID).Error
+	return &tx, err
 }
 
 func (r *transactionRepository) GetByEnrollmentID(ctx context.Context, enrollmentID uuid.UUID) (*domain.Transaction, error) {
@@ -35,6 +43,12 @@ func (r *transactionRepository) GetByEnrollmentID(ctx context.Context, enrollmen
 		return nil, err
 	}
 	return &tx, nil
+}
+
+func (r *transactionRepository) GetBySubscriptionPeriod(ctx context.Context, subscriptionID uuid.UUID, period time.Time) (*domain.Transaction, error) {
+	var tx domain.Transaction
+	err := r.db.WithContext(ctx).Where("subscription_id = ? AND billing_period_start = ?", subscriptionID, period).First(&tx).Error
+	return &tx, err
 }
 
 func (r *transactionRepository) GetByPaymentIntentID(ctx context.Context, paymentIntentID string) (*domain.Transaction, error) {
@@ -81,5 +95,34 @@ func (r *transactionRepository) List(ctx context.Context, tenantID, parentID *uu
 }
 
 func (r *transactionRepository) Update(ctx context.Context, transaction *domain.Transaction) error {
-	return r.db.WithContext(ctx).Save(transaction).Error
+	return r.getDB(ctx).Save(transaction).Error
+}
+
+func (r *transactionRepository) getDB(ctx context.Context) *gorm.DB { return GetDB(ctx, r.db) }
+
+func (r *transactionRepository) GetByIDForUpdate(ctx context.Context, id uuid.UUID) (*domain.Transaction, error) {
+	var tx domain.Transaction
+	if err := r.getDB(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).First(&tx, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	return &tx, nil
+}
+
+func (r *transactionRepository) ClaimInvoice(ctx context.Context, id uuid.UUID) (bool, error) {
+	result := r.getDB(ctx).Model(&domain.Transaction{}).
+		Where("id = ? AND status IN ? AND checkout_session_url IS NULL", id, []string{"pending", "failed"}).
+		Updates(map[string]interface{}{"status": "creating"})
+	return result.RowsAffected == 1, result.Error
+}
+
+func (r *transactionRepository) ClaimPaymentLinkEmail(ctx context.Context, id uuid.UUID, sentAt time.Time) (bool, error) {
+	result := r.getDB(ctx).Model(&domain.Transaction{}).Where("id = ? AND payment_link_sent_at IS NULL AND status = ?", id, "pending").Update("payment_link_sent_at", sentAt)
+	return result.RowsAffected == 1, result.Error
+}
+
+func (r *transactionRepository) ClaimReminderEmail(ctx context.Context, id uuid.UUID, sentAt time.Time, intervalDays int) (bool, error) {
+	cutoff := sentAt.AddDate(0, 0, -intervalDays)
+	result := r.getDB(ctx).Model(&domain.Transaction{}).Where("id = ? AND status = 'pending' AND (last_reminder_sent_at IS NULL OR last_reminder_sent_at <= ?)", id, cutoff).
+		Updates(map[string]interface{}{"last_reminder_sent_at": sentAt, "reminder_count": gorm.Expr("reminder_count + 1")})
+	return result.RowsAffected == 1, result.Error
 }

@@ -12,6 +12,7 @@ type CreateInvoiceRequest struct {
 	PaymentMethod   string
 	CallbackURL     string
 	ReturnURL       string
+	ExpiryPeriod    int
 }
 
 type CreateInvoiceResponse struct {
@@ -35,4 +36,12 @@ type DuitkuCallbackPayload struct {
 type PaymentGateway interface {
 	CreateInvoice(ctx context.Context, request *CreateInvoiceRequest) (*CreateInvoiceResponse, error)
 	ValidateCallbackSignature(payload *DuitkuCallbackPayload) bool
+}
+
+type EmailMessage struct {
+	To, Subject, HTML string
+}
+
+type EmailClient interface {
+	Send(ctx context.Context, message EmailMessage) error
 }

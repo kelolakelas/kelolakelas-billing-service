@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -57,8 +58,21 @@ func (c *client) ActivateEnrollment(ctx context.Context, enrollmentID uuid.UUID)
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("academic service returned status code %d", resp.StatusCode)
+		var envelope struct {
+			Message string `json:"message"`
+		}
+		if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&envelope); err != nil || envelope.Message == "" {
+			return fmt.Errorf("academic service returned status code %d", resp.StatusCode)
+		}
+		return fmt.Errorf("academic service returned status code %d: %s", resp.StatusCode, redactCredential(envelope.Message, c.credential))
 	}
 
 	return nil
+}
+
+func redactCredential(message, credential string) string {
+	if credential == "" {
+		return message
+	}
+	return strings.ReplaceAll(message, credential, "[redacted]")
 }

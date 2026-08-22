@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -12,6 +13,10 @@ type WalletRepository interface {
 	GetByTenantID(ctx context.Context, tenantID uuid.UUID) (*domain.Wallet, error)
 	Create(ctx context.Context, wallet *domain.Wallet) error
 	Update(ctx context.Context, wallet *domain.Wallet) error
+}
+
+type WalletLockingRepository interface {
+	GetByTenantIDForUpdate(ctx context.Context, tenantID uuid.UUID) (*domain.Wallet, error)
 }
 
 type LedgerEntryRepository interface {
@@ -43,14 +48,28 @@ type VoucherRepository interface {
 type TransactionRepository interface {
 	Create(ctx context.Context, transaction *domain.Transaction) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Transaction, error)
+	GetByMerchantOrderID(ctx context.Context, merchantOrderID string) (*domain.Transaction, error)
 	GetByEnrollmentID(ctx context.Context, enrollmentID uuid.UUID) (*domain.Transaction, error)
+	GetBySubscriptionPeriod(ctx context.Context, subscriptionID uuid.UUID, period time.Time) (*domain.Transaction, error)
 	GetByPaymentIntentID(ctx context.Context, paymentIntentID string) (*domain.Transaction, error)
 	List(ctx context.Context, tenantID *uuid.UUID, parentID *uuid.UUID, query domain.TransactionQuery) ([]domain.Transaction, int64, error)
 	Update(ctx context.Context, transaction *domain.Transaction) error
+}
+
+type TransactionLockingRepository interface {
+	GetByIDForUpdate(ctx context.Context, id uuid.UUID) (*domain.Transaction, error)
+	ClaimInvoice(ctx context.Context, id uuid.UUID) (bool, error)
+	ClaimPaymentLinkEmail(ctx context.Context, id uuid.UUID, sentAt time.Time) (bool, error)
+	ClaimReminderEmail(ctx context.Context, id uuid.UUID, sentAt time.Time, intervalDays int) (bool, error)
+}
+
+type BillingTransactionManager interface {
+	WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error
 }
 
 type SubscriptionRepository interface {
 	Create(ctx context.Context, subscription *domain.Subscription) error
 	GetByEnrollmentID(ctx context.Context, enrollmentID uuid.UUID) (*domain.Subscription, error)
 	Update(ctx context.Context, subscription *domain.Subscription) error
+	ListDueForRenewal(ctx context.Context, before time.Time) ([]domain.Subscription, error)
 }

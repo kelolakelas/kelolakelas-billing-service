@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -16,7 +17,7 @@ func NewSubscriptionRepository(db *gorm.DB) SubscriptionRepository {
 }
 
 func (r *subscriptionRepository) Create(ctx context.Context, subscription *domain.Subscription) error {
-	return r.db.WithContext(ctx).Create(subscription).Error
+	return GetDB(ctx, r.db).Create(subscription).Error
 }
 
 func (r *subscriptionRepository) GetByEnrollmentID(ctx context.Context, enrollmentID uuid.UUID) (*domain.Subscription, error) {
@@ -28,5 +29,11 @@ func (r *subscriptionRepository) GetByEnrollmentID(ctx context.Context, enrollme
 }
 
 func (r *subscriptionRepository) Update(ctx context.Context, subscription *domain.Subscription) error {
-	return r.db.WithContext(ctx).Save(subscription).Error
+	return GetDB(ctx, r.db).Save(subscription).Error
+}
+
+func (r *subscriptionRepository) ListDueForRenewal(ctx context.Context, before time.Time) ([]domain.Subscription, error) {
+	var subscriptions []domain.Subscription
+	err := r.db.WithContext(ctx).Where("status = ? AND next_billing_date <= ?", "active", before).Find(&subscriptions).Error
+	return subscriptions, err
 }

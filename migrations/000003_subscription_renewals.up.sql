@@ -1,0 +1,14 @@
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS tenant_id uuid;
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS parent_id uuid;
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS student_id uuid;
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS billing_email varchar(255);
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS parent_name varchar(255);
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS class_name varchar(255);
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS amount bigint NOT NULL DEFAULT 0;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS billing_period_start date;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS billing_email varchar(255);
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS payment_link_sent_at timestamp;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS last_reminder_sent_at timestamp;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS reminder_count int NOT NULL DEFAULT 0;
+DROP INDEX IF EXISTS idx_transactions_enrollment_id;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_subscription_period ON transactions (subscription_id, billing_period_start) WHERE subscription_id IS NOT NULL AND billing_period_start IS NOT NULL;

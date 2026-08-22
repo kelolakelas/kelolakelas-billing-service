@@ -21,6 +21,8 @@ func TestLoadConfig(t *testing.T) {
 				t.Setenv("JWT_SECRET", "railway-jwt-secret")
 				t.Setenv("DB_HOST", "railway-db.internal")
 				t.Setenv("PORT", "19082")
+				t.Setenv("RESEND_API_KEY", "resend-test-key")
+				t.Setenv("RESEND_FROM_EMAIL", "billing@example.com")
 			},
 			wantHost: "railway-db.internal", wantPort: "19082", wantDBName: "kelolakelas_billing", wantBinding: "disable",
 		},
@@ -65,6 +67,9 @@ func TestLoadConfig(t *testing.T) {
 			}
 			if config.DBHost != tt.wantHost || config.Port != tt.wantPort || config.DBName != tt.wantDBName || config.DBChannelBinding != tt.wantBinding {
 				t.Fatalf("config database=%s port=%s name=%s, want database=%s port=%s name=%s", config.DBHost, config.Port, config.DBName, tt.wantHost, tt.wantPort, tt.wantDBName)
+			}
+			if tt.name == "environment variables are loaded" && (config.ResendAPIKey != "resend-test-key" || config.ResendFromEmail != "billing@example.com") {
+				t.Fatalf("resend config=%q/%q, want %q/%q", config.ResendAPIKey, config.ResendFromEmail, "resend-test-key", "billing@example.com")
 			}
 		})
 	}

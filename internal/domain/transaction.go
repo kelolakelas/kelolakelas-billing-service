@@ -30,6 +30,7 @@ type Transaction struct {
 	PaymentGatewayFee      int64          `gorm:"type:bigint;not null;default:0" json:"payment_gateway_fee"`
 	NetAmount              int64          `gorm:"type:bigint;not null" json:"net_amount"`
 	SubscriptionID         *uuid.UUID     `gorm:"type:uuid;index" json:"subscription_id,omitempty"`
+	BillingPeriodStart     *time.Time     `gorm:"type:date;index" json:"billing_period_start,omitempty"`
 	Currency               string         `gorm:"type:varchar(50);not null;default:'IDR'" json:"currency"`
 	Status                 string         `gorm:"type:varchar(255);not null" json:"status"`
 	IsSandbox              bool           `gorm:"type:boolean;not null;default:false" json:"is_sandbox"`
@@ -37,6 +38,10 @@ type Transaction struct {
 	PaymentMethod          *string        `gorm:"type:varchar(255)" json:"payment_method,omitempty"`
 	PaymentIntentID        *string        `gorm:"type:varchar(255);unique;index" json:"payment_intent_id,omitempty"`
 	CheckoutSessionURL     *string        `gorm:"type:text" json:"checkout_session_url,omitempty"`
+	BillingEmail           string         `gorm:"type:varchar(255)" json:"billing_email,omitempty"`
+	PaymentLinkSentAt      *time.Time     `gorm:"type:timestamp" json:"payment_link_sent_at,omitempty"`
+	LastReminderSentAt     *time.Time     `gorm:"type:timestamp" json:"last_reminder_sent_at,omitempty"`
+	ReminderCount          int            `gorm:"type:int;not null;default:0" json:"reminder_count"`
 	PaidAt                 *time.Time     `gorm:"type:timestamp" json:"paid_at,omitempty"`
 	CreatedAt              time.Time      `gorm:"type:timestamp;not null;default:now()" json:"created_at"`
 	UpdatedAt              time.Time      `gorm:"type:timestamp;not null;default:now()" json:"updated_at"`

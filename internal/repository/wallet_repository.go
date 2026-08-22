@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/domain"
 )
@@ -26,9 +27,17 @@ func (r *walletRepository) GetByTenantID(ctx context.Context, tenantID uuid.UUID
 }
 
 func (r *walletRepository) Create(ctx context.Context, wallet *domain.Wallet) error {
-	return r.db.WithContext(ctx).Create(wallet).Error
+	return GetDB(ctx, r.db).Create(wallet).Error
 }
 
 func (r *walletRepository) Update(ctx context.Context, wallet *domain.Wallet) error {
-	return r.db.WithContext(ctx).Save(wallet).Error
+	return GetDB(ctx, r.db).Save(wallet).Error
+}
+
+func (r *walletRepository) GetByTenantIDForUpdate(ctx context.Context, tenantID uuid.UUID) (*domain.Wallet, error) {
+	var wallet domain.Wallet
+	if err := GetDB(ctx, r.db).Clauses(clause.Locking{Strength: "UPDATE"}).First(&wallet, "tenant_id = ?", tenantID).Error; err != nil {
+		return nil, err
+	}
+	return &wallet, nil
 }

@@ -26,6 +26,7 @@ type transactionUsecase struct {
 	paymentGateway   domain.PaymentGateway
 	academicClient   academic.Client
 	cfg              config.Config
+	txManager        repository.BillingTransactionManager
 }
 
 func NewTransactionUsecase(
@@ -36,15 +37,19 @@ func NewTransactionUsecase(
 	paymentGateway domain.PaymentGateway,
 	academicClient academic.Client,
 	cfg config.Config,
+	txManagers ...repository.BillingTransactionManager,
 ) TransactionUsecase {
+	var txManager repository.BillingTransactionManager
+	if len(txManagers) > 0 {
+		txManager = txManagers[0]
+	}
 	return &transactionUsecase{
 		txRepo:           txRepo,
 		walletRepo:       walletRepo,
 		ledgerRepo:       ledgerRepo,
 		subscriptionRepo: subscriptionRepo,
 		paymentGateway:   paymentGateway,
-		academicClient:   academicClient,
-		cfg:              cfg,
+		academicClient:   academicClient, cfg: cfg, txManager: txManager,
 	}
 }
 
@@ -86,9 +91,16 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 	subscription := &domain.Subscription{
 		ID:              uuid.New(),
 		EnrollmentID:    req.EnrollmentID,
+		TenantID:        req.TenantID,
+		ParentID:        req.ParentID,
+		StudentID:       req.StudentID,
 		BillingCycle:    req.BillingCycle,
 		NextBillingDate: nextBillingDate,
 		Status:          "pending",
+		BillingEmail:    req.SenderEmail,
+		ParentName:      req.SenderName,
+		ClassName:       title,
+		Amount:          grossAmount,
 	}
 	if existing, err := u.subscriptionRepo.GetByEnrollmentID(ctx, req.EnrollmentID); err == nil {
 		subscription = existing
@@ -117,13 +129,36 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 		Status:                 "pending",
 		IsSandbox:              strings.Contains(strings.ToLower(u.cfg.DuitkuAPIBaseURL), "sandbox"),
 		PaymentGatewayProvider: &provider,
+		BillingEmail:           req.SenderEmail,
 	}
+	initialPeriod := time.Now()
+	tx.BillingPeriodStart = &initialPeriod
 
 	if existing, err := u.txRepo.GetByEnrollmentID(ctx, req.EnrollmentID); err == nil {
 		tx = existing
 		tx.SubscriptionID = &subscription.ID
 	} else if err := u.txRepo.Create(ctx, tx); err != nil {
-		return nil, fmt.Errorf("failed to create transaction record: %w", err)
+		if existing, getErr := u.txRepo.GetByEnrollmentID(ctx, req.EnrollmentID); getErr == nil {
+			tx = existing
+		} else {
+			return nil, fmt.Errorf("failed to create transaction record: %w", err)
+		}
+	}
+	if lockingRepo, ok := u.txRepo.(repository.TransactionLockingRepository); ok {
+		claimed, claimErr := lockingRepo.ClaimInvoice(ctx, tx.ID)
+		if claimErr != nil {
+			return nil, fmt.Errorf("failed to claim invoice creation: %w", claimErr)
+		}
+		if !claimed {
+			current, getErr := u.txRepo.GetByEnrollmentID(ctx, req.EnrollmentID)
+			if getErr != nil {
+				return nil, fmt.Errorf("failed to read invoice state: %w", getErr)
+			}
+			if current.CheckoutSessionURL != nil && *current.CheckoutSessionURL != "" {
+				return &domain.GenerateSubscriptionPaymentResponse{TransactionID: current.ID, CheckoutSessionURL: *current.CheckoutSessionURL, PaymentIntentID: valueOrEmpty(current.PaymentIntentID), GrossAmount: current.GrossAmount, Status: current.Status}, nil
+			}
+			return nil, fmt.Errorf("invoice creation is already in progress")
+		}
 	}
 
 	invoice, err := u.paymentGateway.CreateInvoice(ctx, &domain.CreateInvoiceRequest{
@@ -136,6 +171,7 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 		PaymentMethod:   "VC",
 		CallbackURL:     u.cfg.DuitkuCallbackURL,
 		ReturnURL:       u.cfg.DuitkuReturnURL,
+		ExpiryPeriod:    0,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate Duitku payment link: %w", err)
@@ -214,11 +250,45 @@ func (u *transactionUsecase) GetByIDScoped(ctx context.Context, tenantID, parent
 }
 
 func (u *transactionUsecase) HandleDuitkuWebhook(ctx context.Context, payload *domain.DuitkuCallbackPayload) error {
-	transactionID, err := uuid.Parse(payload.MerchantOrderID)
-	if err != nil {
-		return domain.ErrTransactionNotFound
+	if u.txManager != nil {
+		var tx *domain.Transaction
+		err := u.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+			return u.handleDuitkuWebhookLocal(txCtx, payload, &tx)
+		})
+		if err != nil {
+			return err
+		}
+		if tx != nil && (tx.Status == "paid" || payload.ResultCode == "00") {
+			return u.academicClient.ActivateEnrollment(ctx, tx.EnrollmentID)
+		}
+		return nil
 	}
-	tx, err := u.txRepo.GetByID(ctx, transactionID)
+	return u.handleDuitkuWebhookLocal(ctx, payload, nil)
+}
+
+func (u *transactionUsecase) handleDuitkuWebhookLocal(ctx context.Context, payload *domain.DuitkuCallbackPayload, result **domain.Transaction) error {
+	transactionID, err := uuid.Parse(payload.MerchantOrderID)
+	var tx *domain.Transaction
+	if err != nil {
+		if lookup, ok := u.txRepo.(interface {
+			GetByMerchantOrderID(context.Context, string) (*domain.Transaction, error)
+		}); ok {
+			tx, err = lookup.GetByMerchantOrderID(ctx, payload.MerchantOrderID)
+		} else {
+			return domain.ErrTransactionNotFound
+		}
+	}
+	if lockingRepo, ok := u.txRepo.(repository.TransactionLockingRepository); ok {
+		if tx != nil {
+			tx, err = lockingRepo.GetByIDForUpdate(ctx, tx.ID)
+		} else {
+			tx, err = lockingRepo.GetByIDForUpdate(ctx, transactionID)
+		}
+	} else {
+		if tx == nil {
+			tx, err = u.txRepo.GetByID(ctx, transactionID)
+		}
+	}
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return domain.ErrTransactionNotFound
@@ -228,7 +298,10 @@ func (u *transactionUsecase) HandleDuitkuWebhook(ctx context.Context, payload *d
 
 	// A paid transaction still needs activation reconciliation on callback replay.
 	if tx.Status == "paid" {
-		return u.academicClient.ActivateEnrollment(ctx, tx.EnrollmentID)
+		if result != nil {
+			*result = tx
+		}
+		return nil
 	}
 
 	amount, err := strconv.ParseInt(payload.Amount, 10, 64)
@@ -258,7 +331,11 @@ func (u *transactionUsecase) HandleDuitkuWebhook(ctx context.Context, payload *d
 			}
 			if subscription != nil {
 				subscription.Status = "active"
-				nextDate, dateErr := nextBillingDate(now, subscription.BillingCycle)
+				period := now
+				if tx.BillingPeriodStart != nil {
+					period = *tx.BillingPeriodStart
+				}
+				nextDate, dateErr := nextBillingDate(period, subscription.BillingCycle)
 				if dateErr != nil {
 					return dateErr
 				}
@@ -271,11 +348,19 @@ func (u *transactionUsecase) HandleDuitkuWebhook(ctx context.Context, payload *d
 
 		// Sandbox callbacks must never create real tenant balance or ledger entries.
 		if tx.IsSandbox {
-			return u.academicClient.ActivateEnrollment(ctx, tx.EnrollmentID)
+			if result != nil {
+				*result = tx
+			}
+			return nil
 		}
 
 		// 6. Credit Tenant Wallet
-		wallet, err := u.walletRepo.GetByTenantID(ctx, tx.TenantID)
+		var wallet *domain.Wallet
+		if lockingRepo, ok := u.walletRepo.(repository.WalletLockingRepository); ok {
+			wallet, err = lockingRepo.GetByTenantIDForUpdate(ctx, tx.TenantID)
+		} else {
+			wallet, err = u.walletRepo.GetByTenantID(ctx, tx.TenantID)
+		}
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				wallet = &domain.Wallet{
@@ -312,9 +397,8 @@ func (u *transactionUsecase) HandleDuitkuWebhook(ctx context.Context, payload *d
 			return fmt.Errorf("failed to create ledger entry: %w", err)
 		}
 
-		// 7. Trigger status update for Enrollments record to 'active' in academic-service
-		if err := u.academicClient.ActivateEnrollment(ctx, tx.EnrollmentID); err != nil {
-			return fmt.Errorf("failed to update enrollment status in academic service: %w", err)
+		if result != nil {
+			*result = tx
 		}
 	} else if payload.ResultCode == "01" || payload.ResultCode == "02" {
 		tx.Status = "failed"

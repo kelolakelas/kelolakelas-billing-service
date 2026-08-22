@@ -158,6 +158,25 @@ func NewTransactionHandler(txUsecase usecase.TransactionUsecase, paymentGateway 
 // @Failure 500 {object} domain.ErrorResponse
 // @Router /api/v1/billing/transactions [post]
 func (h *TransactionHandler) GenerateSubscriptionPayment(c *gin.Context) {
+	h.generateSubscriptionPayment(c)
+}
+
+// GenerateInternalSubscriptionPayment godoc
+// @Summary Generate subscription payment from an internal service
+// @Description Internal service-to-service endpoint for generating a billing invoice.
+// @Tags Billing
+// @Accept json
+// @Produce json
+// @Param request body domain.GenerateSubscriptionPaymentRequest true "Payment request details"
+// @Success 201 {object} domain.HTTPResponse{data=domain.GenerateSubscriptionPaymentResponse}
+// @Failure 400 {object} domain.ErrorResponse
+// @Failure 500 {object} domain.ErrorResponse
+// @Router /internal/billing/transactions [post]
+func (h *TransactionHandler) GenerateInternalSubscriptionPayment(c *gin.Context) {
+	h.generateSubscriptionPayment(c)
+}
+
+func (h *TransactionHandler) generateSubscriptionPayment(c *gin.Context) {
 	var req domain.GenerateSubscriptionPaymentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -203,7 +222,7 @@ func (h *TransactionHandler) HandleDuitkuWebhook(c *gin.Context) {
 	if err := c.ShouldBind(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"status":  "error",
-			"message": "Failed to bind webhook payload: " + err.Error(),
+			"message": "Invalid webhook payload",
 		})
 		return
 	}
@@ -233,7 +252,7 @@ func (h *TransactionHandler) HandleDuitkuWebhook(c *gin.Context) {
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"status":  "error",
-			"message": "Failed to process webhook: " + err.Error(),
+			"message": "Failed to process webhook",
 		})
 		return
 	}

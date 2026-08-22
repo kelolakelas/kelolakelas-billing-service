@@ -56,7 +56,10 @@ func (c *DuitkuAdapter) CreateInvoice(ctx context.Context, request *domain.Creat
 		MerchantCode: c.merchantCode, PaymentAmount: request.Amount, PaymentMethod: request.PaymentMethod,
 		MerchantOrderID: request.MerchantOrderID, ProductDetails: request.ProductDetails, Email: request.Email,
 		PhoneNumber: request.PhoneNumber, CustomerVAName: request.CustomerVAName, CallbackURL: request.CallbackURL,
-		ReturnURL: request.ReturnURL, Signature: c.requestSignature(request.MerchantOrderID, request.Amount), ExpiryPeriod: 1440,
+		ReturnURL: request.ReturnURL, Signature: c.requestSignature(request.MerchantOrderID, request.Amount), ExpiryPeriod: request.ExpiryPeriod,
+	}
+	if payload.ExpiryPeriod == 0 {
+		payload.ExpiryPeriod = 1440
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
