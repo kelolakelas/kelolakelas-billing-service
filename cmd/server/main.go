@@ -17,7 +17,6 @@ import (
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/config"
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/delivery/http/handler"
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/delivery/http/middleware"
-	"github.com/kelolakelas/kelolakelas-billing-service/internal/domain"
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/repository"
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/usecase"
 	"github.com/kelolakelas/kelolakelas-billing-service/pkg/academic"
@@ -49,21 +48,6 @@ func main() {
 	db, err := database.NewPostgresDB(cfg.DBHost, cfg.DBPort, cfg.DBUser, cfg.DBPassword, cfg.DBName, cfg.DBSSLMode, cfg.DBChannelBinding)
 	if err != nil {
 		slog.Error("Database connection failed", "error", err)
-		os.Exit(1)
-	}
-
-	// Auto-migrate schema
-	slog.Info("Running auto-migration...")
-	if err := db.AutoMigrate(
-		&domain.Transaction{},
-		&domain.Subscription{},
-		&domain.Wallet{},
-		&domain.LedgerEntry{},
-		&domain.BankAccount{},
-		&domain.Withdrawal{},
-		&domain.Voucher{},
-	); err != nil {
-		slog.Error("Auto-migration failed", "error", err)
 		os.Exit(1)
 	}
 
