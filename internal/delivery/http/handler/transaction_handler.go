@@ -146,21 +146,6 @@ func NewTransactionHandler(txUsecase usecase.TransactionUsecase, paymentGateway 
 	}
 }
 
-// GenerateSubscriptionPayment godoc
-// @Summary Generate class subscription payment link
-// @Description Initiates class subscription payment via Duitku
-// @Tags Billing
-// @Accept json
-// @Produce json
-// @Param request body domain.GenerateSubscriptionPaymentRequest true "Payment request details"
-// @Success 201 {object} domain.HTTPResponse{data=domain.GenerateSubscriptionPaymentResponse}
-// @Failure 400 {object} domain.ErrorResponse
-// @Failure 500 {object} domain.ErrorResponse
-// @Router /api/v1/billing/transactions [post]
-func (h *TransactionHandler) GenerateSubscriptionPayment(c *gin.Context) {
-	h.generateSubscriptionPayment(c)
-}
-
 // GenerateInternalSubscriptionPayment godoc
 // @Summary Generate subscription payment from an internal service
 // @Description Internal service-to-service endpoint for generating a billing invoice.

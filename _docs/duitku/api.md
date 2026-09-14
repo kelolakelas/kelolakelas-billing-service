@@ -33,8 +33,8 @@ Semua request API ke Duitku menggunakan `Content-Type: application/json`, kecual
 
 ## 3. Alur Integrasi KelolaKelas
 
-1. Client mengirim `POST /api/v1/billing/transactions` ke API Gateway dengan detail enrollment dan nominal dalam `int64`.
-2. Gateway meneruskan request ke billing service. Endpoint ini membutuhkan autentikasi gateway.
+1. Academic service mengirim `POST /internal/billing/transactions` setelah memverifikasi enrollment dan menggunakan internal service credential.
+2. Billing service menerima data enrollment/nominal dari alur internal yang tervalidasi; tidak ada endpoint user-facing untuk membuat invoice.
 3. Billing service membuat UUID transaction sebagai `merchantOrderId`.
 4. `DuitkuAdapter` mengirim inquiry ke Duitku dan menyimpan `reference` serta `paymentUrl`.
 5. Client diarahkan ke `checkout_session_url` atau `paymentUrl`.
@@ -47,7 +47,7 @@ Semua request API ke Duitku menggunakan `Content-Type: application/json`, kecual
 
 | Method | URL | Auth |
 | --- | --- | --- |
-| `POST` | `/api/v1/billing/transactions` | JWT melalui gateway |
+| `POST` | `/internal/billing/transactions` | Internal bearer credential dari academic service |
 | `POST` | `/api/v1/billing/webhooks/duitku` | Publik, divalidasi dengan HMAC Duitku |
 
 Callback tidak boleh dilindungi middleware JWT karena request berasal dari server Duitku.
