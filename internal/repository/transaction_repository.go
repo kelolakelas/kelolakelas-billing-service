@@ -25,7 +25,7 @@ func (r *transactionRepository) Create(ctx context.Context, transaction *domain.
 
 func (r *transactionRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Transaction, error) {
 	var tx domain.Transaction
-	if err := r.getDB(ctx).First(&tx, "id = ?", id).Error; err != nil {
+	if err := r.getDB(ctx).Preload("Reconciliation").First(&tx, "id = ?", id).Error; err != nil {
 		return nil, err
 	}
 	return &tx, nil
@@ -33,7 +33,7 @@ func (r *transactionRepository) GetByID(ctx context.Context, id uuid.UUID) (*dom
 
 func (r *transactionRepository) GetByMerchantOrderID(ctx context.Context, merchantOrderID string) (*domain.Transaction, error) {
 	var tx domain.Transaction
-	err := r.getDB(ctx).First(&tx, "merchant_order_id = ?", merchantOrderID).Error
+	err := r.getDB(ctx).Preload("Reconciliation").First(&tx, "merchant_order_id = ?", merchantOrderID).Error
 	return &tx, err
 }
 
@@ -60,7 +60,7 @@ func (r *transactionRepository) GetByPaymentIntentID(ctx context.Context, paymen
 }
 
 func (r *transactionRepository) List(ctx context.Context, tenantID, parentID *uuid.UUID, query domain.TransactionQuery) ([]domain.Transaction, int64, error) {
-	db := r.db.WithContext(ctx).Model(&domain.Transaction{})
+	db := r.db.WithContext(ctx).Model(&domain.Transaction{}).Preload("Reconciliation")
 	if tenantID != nil {
 		db = db.Where("tenant_id = ?", *tenantID)
 	}

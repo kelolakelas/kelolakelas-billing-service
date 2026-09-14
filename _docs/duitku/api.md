@@ -299,13 +299,14 @@ merchantCode=DXXXX
 | `issuerCode` | Kode issuer QRIS jika tersedia. |
 | `customerName` | Identitas akun issuer untuk channel QRIS tertentu. |
 
-Server callback harus mengembalikan HTTP `200 OK` setelah callback valid dan berhasil diproses. Duitku dapat mengirim ulang callback jika tidak menerima `200` dan mendukung maksimal lima percobaan menurut dokumentasi.
+Server callback mengembalikan HTTP `200 OK` setelah callback valid dan paid state beserta pekerjaan aktivasi durable berhasil disimpan. Kegagalan sementara pada academic tidak memaksa callback diulang karena worker billing akan melakukan retry; kegagalan penyimpanan callback tetap menghasilkan error agar provider dapat mengirim ulang callback.
 
 ### Aturan pemrosesan billing service
 
 - `resultCode=00`: transaksi menjadi `paid` secara idempotent.
 - `resultCode=01` atau `02`: transaksi menjadi `failed` sesuai mapping aplikasi.
 - Callback transaksi yang sudah `paid` tidak boleh mengkredit wallet dua kali.
+- Aktivasi enrollment yang gagal setelah commit pembayaran disimpan di `payment_reconciliations` dan dicoba ulang oleh worker billing secara idempotent.
 - `amount` harus sama dengan `gross_amount` transaksi.
 - Kredit ledger memakai `net_amount`, bukan `gross_amount`.
 - Subscription `next_billing_date` dihitung ulang berdasarkan billing cycle.

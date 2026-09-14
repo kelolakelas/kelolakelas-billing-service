@@ -47,7 +47,8 @@ type Transaction struct {
 	UpdatedAt              time.Time      `gorm:"type:timestamp;not null;default:now()" json:"updated_at"`
 	DeletedAt              gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
 
-	Voucher *Voucher `gorm:"foreignKey:VoucherID" json:"voucher,omitempty"`
+	Voucher        *Voucher               `gorm:"foreignKey:VoucherID" json:"voucher,omitempty"`
+	Reconciliation *PaymentReconciliation `gorm:"foreignKey:TransactionID" json:"reconciliation,omitempty"`
 }
 
 type GenerateSubscriptionPaymentRequest struct {
@@ -77,27 +78,31 @@ type GenerateSubscriptionPaymentResponse struct {
 }
 
 type TransactionResponse struct {
-	ID                     uuid.UUID  `json:"id"`
-	MerchantOrderID        string     `json:"merchant_order_id"`
-	TenantID               uuid.UUID  `json:"tenant_id"`
-	ParentID               uuid.UUID  `json:"parent_id"`
-	StudentID              uuid.UUID  `json:"student_id"`
-	EnrollmentID           uuid.UUID  `json:"enrollment_id"`
-	VoucherID              *uuid.UUID `json:"voucher_id,omitempty"`
-	SubtotalAmount         int64      `json:"subtotal_amount"`
-	DiscountAmount         int64      `json:"discount_amount"`
-	GrossAmount            int64      `json:"gross_amount"`
-	PlatformFee            int64      `json:"platform_fee"`
-	PaymentGatewayFee      int64      `json:"payment_gateway_fee"`
-	NetAmount              int64      `json:"net_amount"`
-	Currency               string     `json:"currency"`
-	Status                 string     `json:"status"`
-	PaymentGatewayProvider string     `json:"payment_gateway_provider,omitempty"`
-	PaymentIntentID        string     `json:"payment_intent_id,omitempty"`
-	CheckoutSessionURL     string     `json:"checkout_session_url,omitempty"`
-	PaidAt                 *time.Time `json:"paid_at,omitempty"`
-	CreatedAt              time.Time  `json:"created_at"`
-	UpdatedAt              time.Time  `json:"updated_at"`
+	ID                          uuid.UUID  `json:"id"`
+	MerchantOrderID             string     `json:"merchant_order_id"`
+	TenantID                    uuid.UUID  `json:"tenant_id"`
+	ParentID                    uuid.UUID  `json:"parent_id"`
+	StudentID                   uuid.UUID  `json:"student_id"`
+	EnrollmentID                uuid.UUID  `json:"enrollment_id"`
+	VoucherID                   *uuid.UUID `json:"voucher_id,omitempty"`
+	SubtotalAmount              int64      `json:"subtotal_amount"`
+	DiscountAmount              int64      `json:"discount_amount"`
+	GrossAmount                 int64      `json:"gross_amount"`
+	PlatformFee                 int64      `json:"platform_fee"`
+	PaymentGatewayFee           int64      `json:"payment_gateway_fee"`
+	NetAmount                   int64      `json:"net_amount"`
+	Currency                    string     `json:"currency"`
+	Status                      string     `json:"status"`
+	PaymentGatewayProvider      string     `json:"payment_gateway_provider,omitempty"`
+	PaymentIntentID             string     `json:"payment_intent_id,omitempty"`
+	CheckoutSessionURL          string     `json:"checkout_session_url,omitempty"`
+	PaidAt                      *time.Time `json:"paid_at,omitempty"`
+	CreatedAt                   time.Time  `json:"created_at"`
+	UpdatedAt                   time.Time  `json:"updated_at"`
+	ReconciliationStatus        string     `json:"reconciliation_status,omitempty"`
+	ReconciliationAttempts      int        `json:"reconciliation_attempts,omitempty"`
+	ReconciliationLastError     string     `json:"reconciliation_last_error,omitempty"`
+	ReconciliationNextAttemptAt *time.Time `json:"reconciliation_next_attempt_at,omitempty"`
 }
 
 type TransactionQuery struct {
