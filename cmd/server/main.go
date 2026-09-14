@@ -85,7 +85,6 @@ func main() {
 		apiV1.POST("/webhooks/duitku", txHandler.HandleDuitkuWebhook)
 		protected := apiV1.Group("")
 		protected.Use(middleware.AuthMiddleware(cfg.JWTSecret))
-		protected.POST("/transactions", txHandler.GenerateSubscriptionPayment)
 		protected.GET("/transactions", txHandler.List)
 		protected.GET("/transactions/:id", txHandler.Get)
 	}
