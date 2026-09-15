@@ -19,14 +19,15 @@ import (
 )
 
 type transactionUsecase struct {
-	txRepo           repository.TransactionRepository
-	walletRepo       repository.WalletRepository
-	ledgerRepo       repository.LedgerEntryRepository
-	subscriptionRepo repository.SubscriptionRepository
-	paymentGateway   domain.PaymentGateway
-	academicClient   academic.Client
-	cfg              config.Config
-	txManager        repository.BillingTransactionManager
+	txRepo             repository.TransactionRepository
+	walletRepo         repository.WalletRepository
+	ledgerRepo         repository.LedgerEntryRepository
+	subscriptionRepo   repository.SubscriptionRepository
+	paymentGateway     domain.PaymentGateway
+	academicClient     academic.Client
+	cfg                config.Config
+	txManager          repository.BillingTransactionManager
+	reconciliationRepo repository.PaymentReconciliationRepository
 }
 
 func NewTransactionUsecase(
@@ -43,13 +44,41 @@ func NewTransactionUsecase(
 	if len(txManagers) > 0 {
 		txManager = txManagers[0]
 	}
+	return newTransactionUsecase(txRepo, walletRepo, ledgerRepo, subscriptionRepo, paymentGateway, academicClient, cfg, txManager, nil)
+}
+
+func NewTransactionUsecaseWithReconciliation(
+	txRepo repository.TransactionRepository,
+	walletRepo repository.WalletRepository,
+	ledgerRepo repository.LedgerEntryRepository,
+	subscriptionRepo repository.SubscriptionRepository,
+	paymentGateway domain.PaymentGateway,
+	academicClient academic.Client,
+	cfg config.Config,
+	txManager repository.BillingTransactionManager,
+	reconciliationRepo repository.PaymentReconciliationRepository,
+) TransactionUsecase {
+	return newTransactionUsecase(txRepo, walletRepo, ledgerRepo, subscriptionRepo, paymentGateway, academicClient, cfg, txManager, reconciliationRepo)
+}
+
+func newTransactionUsecase(
+	txRepo repository.TransactionRepository,
+	walletRepo repository.WalletRepository,
+	ledgerRepo repository.LedgerEntryRepository,
+	subscriptionRepo repository.SubscriptionRepository,
+	paymentGateway domain.PaymentGateway,
+	academicClient academic.Client,
+	cfg config.Config,
+	txManager repository.BillingTransactionManager,
+	reconciliationRepo repository.PaymentReconciliationRepository,
+) TransactionUsecase {
 	return &transactionUsecase{
 		txRepo:           txRepo,
 		walletRepo:       walletRepo,
 		ledgerRepo:       ledgerRepo,
 		subscriptionRepo: subscriptionRepo,
 		paymentGateway:   paymentGateway,
-		academicClient:   academicClient, cfg: cfg, txManager: txManager,
+		academicClient:   academicClient, cfg: cfg, txManager: txManager, reconciliationRepo: reconciliationRepo,
 	}
 }
 
@@ -211,7 +240,20 @@ func transactionResponse(tx *domain.Transaction) *domain.TransactionResponse {
 	if tx.CheckoutSessionURL != nil {
 		checkout = *tx.CheckoutSessionURL
 	}
-	return &domain.TransactionResponse{ID: tx.ID, MerchantOrderID: tx.MerchantOrderID, TenantID: tx.TenantID, ParentID: tx.ParentID, StudentID: tx.StudentID, EnrollmentID: tx.EnrollmentID, VoucherID: tx.VoucherID, SubtotalAmount: tx.SubtotalAmount, DiscountAmount: tx.DiscountAmount, GrossAmount: tx.GrossAmount, PlatformFee: tx.PlatformFee, PaymentGatewayFee: tx.PaymentGatewayFee, NetAmount: tx.NetAmount, Currency: tx.Currency, Status: tx.Status, PaymentGatewayProvider: provider, PaymentIntentID: intent, CheckoutSessionURL: checkout, PaidAt: tx.PaidAt, CreatedAt: tx.CreatedAt, UpdatedAt: tx.UpdatedAt}
+	response := &domain.TransactionResponse{ID: tx.ID, MerchantOrderID: tx.MerchantOrderID, TenantID: tx.TenantID, ParentID: tx.ParentID, StudentID: tx.StudentID, EnrollmentID: tx.EnrollmentID, VoucherID: tx.VoucherID, SubtotalAmount: tx.SubtotalAmount, DiscountAmount: tx.DiscountAmount, GrossAmount: tx.GrossAmount, PlatformFee: tx.PlatformFee, PaymentGatewayFee: tx.PaymentGatewayFee, NetAmount: tx.NetAmount, Currency: tx.Currency, Status: tx.Status, PaymentGatewayProvider: provider, PaymentIntentID: intent, CheckoutSessionURL: checkout, PaidAt: tx.PaidAt, CreatedAt: tx.CreatedAt, UpdatedAt: tx.UpdatedAt}
+	if tx.Reconciliation != nil {
+		status := tx.Reconciliation.Status
+		if status == domain.ReconciliationStatusPending || status == domain.ReconciliationStatusProcessing {
+			status = "reconciling"
+		}
+		response.ReconciliationStatus = status
+		response.ReconciliationAttempts = tx.Reconciliation.AttemptCount
+		response.ReconciliationNextAttemptAt = tx.Reconciliation.NextAttemptAt
+		if tx.Reconciliation.LastError != nil {
+			response.ReconciliationLastError = *tx.Reconciliation.LastError
+		}
+	}
+	return response
 }
 func (u *transactionUsecase) List(ctx context.Context, tenantID, parentID *uuid.UUID, query domain.TransactionQuery) (*domain.TransactionListResponse, error) {
 	if query.Page < 1 {
@@ -250,20 +292,52 @@ func (u *transactionUsecase) GetByIDScoped(ctx context.Context, tenantID, parent
 }
 
 func (u *transactionUsecase) HandleDuitkuWebhook(ctx context.Context, payload *domain.DuitkuCallbackPayload) error {
+	var tx *domain.Transaction
 	if u.txManager != nil {
-		var tx *domain.Transaction
 		err := u.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
 			return u.handleDuitkuWebhookLocal(txCtx, payload, &tx)
 		})
 		if err != nil {
 			return err
 		}
-		if tx != nil && (tx.Status == "paid" || payload.ResultCode == "00") {
-			return u.academicClient.ActivateEnrollment(ctx, tx.EnrollmentID)
-		}
+	} else if err := u.handleDuitkuWebhookLocal(ctx, payload, &tx); err != nil {
+		return err
+	}
+	if tx == nil || tx.Status != "paid" {
 		return nil
 	}
-	return u.handleDuitkuWebhookLocal(ctx, payload, nil)
+	return u.reconcilePayment(ctx, tx)
+}
+
+func (u *transactionUsecase) ensureReconciliation(ctx context.Context, tx *domain.Transaction) error {
+	if u.reconciliationRepo == nil {
+		return nil
+	}
+	now := time.Now()
+	return u.reconciliationRepo.Ensure(ctx, &domain.PaymentReconciliation{
+		ID:            uuid.New(),
+		TransactionID: tx.ID,
+		EnrollmentID:  tx.EnrollmentID,
+		Status:        domain.ReconciliationStatusPending,
+		NextAttemptAt: &now,
+	})
+}
+
+func (u *transactionUsecase) reconcilePayment(ctx context.Context, tx *domain.Transaction) error {
+	if u.reconciliationRepo == nil {
+		if u.academicClient == nil {
+			return nil
+		}
+		return u.academicClient.ActivateEnrollment(ctx, tx.EnrollmentID)
+	}
+	reconciliation, err := u.reconciliationRepo.ClaimDue(ctx, tx.ID, time.Now(), reconciliationLease)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to claim enrollment reconciliation: %w", err)
+	}
+	return processClaimedReconciliation(ctx, u.reconciliationRepo, u.academicClient, u.cfg, reconciliation, time.Now())
 }
 
 func (u *transactionUsecase) handleDuitkuWebhookLocal(ctx context.Context, payload *domain.DuitkuCallbackPayload, result **domain.Transaction) error {
@@ -298,6 +372,9 @@ func (u *transactionUsecase) handleDuitkuWebhookLocal(ctx context.Context, paylo
 
 	// A paid transaction still needs activation reconciliation on callback replay.
 	if tx.Status == "paid" {
+		if err := u.ensureReconciliation(ctx, tx); err != nil {
+			return fmt.Errorf("failed to enqueue enrollment reconciliation: %w", err)
+		}
 		if result != nil {
 			*result = tx
 		}
@@ -347,54 +424,53 @@ func (u *transactionUsecase) handleDuitkuWebhookLocal(ctx context.Context, paylo
 		}
 
 		// Sandbox callbacks must never create real tenant balance or ledger entries.
-		if tx.IsSandbox {
-			if result != nil {
-				*result = tx
-			}
-			return nil
-		}
+		if !tx.IsSandbox {
 
-		// 6. Credit Tenant Wallet
-		var wallet *domain.Wallet
-		if lockingRepo, ok := u.walletRepo.(repository.WalletLockingRepository); ok {
-			wallet, err = lockingRepo.GetByTenantIDForUpdate(ctx, tx.TenantID)
-		} else {
-			wallet, err = u.walletRepo.GetByTenantID(ctx, tx.TenantID)
-		}
-		if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				wallet = &domain.Wallet{
-					ID:               uuid.New(),
-					TenantID:         tx.TenantID,
-					AvailableBalance: tx.NetAmount,
-					PendingBalance:   0,
-				}
-				if createErr := u.walletRepo.Create(ctx, wallet); createErr != nil {
-					return fmt.Errorf("failed to create tenant wallet: %w", createErr)
+			// 6. Credit Tenant Wallet
+			var wallet *domain.Wallet
+			if lockingRepo, ok := u.walletRepo.(repository.WalletLockingRepository); ok {
+				wallet, err = lockingRepo.GetByTenantIDForUpdate(ctx, tx.TenantID)
+			} else {
+				wallet, err = u.walletRepo.GetByTenantID(ctx, tx.TenantID)
+			}
+			if err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					wallet = &domain.Wallet{
+						ID:               uuid.New(),
+						TenantID:         tx.TenantID,
+						AvailableBalance: tx.NetAmount,
+						PendingBalance:   0,
+					}
+					if createErr := u.walletRepo.Create(ctx, wallet); createErr != nil {
+						return fmt.Errorf("failed to create tenant wallet: %w", createErr)
+					}
+				} else {
+					return fmt.Errorf("failed to fetch tenant wallet: %w", err)
 				}
 			} else {
-				return fmt.Errorf("failed to fetch tenant wallet: %w", err)
+				wallet.AvailableBalance += tx.NetAmount
+				if updateErr := u.walletRepo.Update(ctx, wallet); updateErr != nil {
+					return fmt.Errorf("failed to update tenant wallet balance: %w", updateErr)
+				}
 			}
-		} else {
-			wallet.AvailableBalance += tx.NetAmount
-			if updateErr := u.walletRepo.Update(ctx, wallet); updateErr != nil {
-				return fmt.Errorf("failed to update tenant wallet balance: %w", updateErr)
-			}
-		}
 
-		// Record Ledger Entry
-		desc := fmt.Sprintf("Subscription payment received for enrollment %s", tx.EnrollmentID)
-		ledgerEntry := &domain.LedgerEntry{
-			ID:            uuid.New(),
-			WalletID:      wallet.ID,
-			ReferenceID:   tx.ID,
-			ReferenceType: "transaction",
-			Amount:        tx.NetAmount,
-			EntryType:     "payment_received",
-			Description:   &desc,
+			// Record Ledger Entry
+			desc := fmt.Sprintf("Subscription payment received for enrollment %s", tx.EnrollmentID)
+			ledgerEntry := &domain.LedgerEntry{
+				ID:            uuid.New(),
+				WalletID:      wallet.ID,
+				ReferenceID:   tx.ID,
+				ReferenceType: "transaction",
+				Amount:        tx.NetAmount,
+				EntryType:     "payment_received",
+				Description:   &desc,
+			}
+			if err := u.ledgerRepo.Create(ctx, ledgerEntry); err != nil {
+				return fmt.Errorf("failed to create ledger entry: %w", err)
+			}
 		}
-		if err := u.ledgerRepo.Create(ctx, ledgerEntry); err != nil {
-			return fmt.Errorf("failed to create ledger entry: %w", err)
+		if err := u.ensureReconciliation(ctx, tx); err != nil {
+			return fmt.Errorf("failed to enqueue enrollment reconciliation: %w", err)
 		}
 
 		if result != nil {

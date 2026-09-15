@@ -61,10 +61,12 @@ func main() {
 	walletRepo := repository.NewWalletRepository(db)
 	ledgerRepo := repository.NewLedgerEntryRepository(db)
 	txManager := repository.NewTransactionManager(db)
+	reconciliationRepo := repository.NewPaymentReconciliationRepository(db)
 
 	// Initialize Usecases
-	txUsecase := usecase.NewTransactionUsecase(txRepo, walletRepo, ledgerRepo, subscriptionRepo, duitkuClient, academicClient, cfg, txManager)
+	txUsecase := usecase.NewTransactionUsecaseWithReconciliation(txRepo, walletRepo, ledgerRepo, subscriptionRepo, duitkuClient, academicClient, cfg, txManager, reconciliationRepo)
 	worker := usecase.NewSubscriptionWorker(subscriptionRepo, txRepo, duitkuClient, email.NewResendClient(cfg.ResendAPIKey, cfg.ResendFromEmail), cfg)
+	reconciliationWorker := usecase.NewPaymentReconciliationWorker(reconciliationRepo, academicClient, cfg)
 
 	// Initialize Handlers
 	txHandler := handler.NewTransactionHandler(txUsecase, duitkuClient)
@@ -97,6 +99,9 @@ func main() {
 	defer stop()
 	if cfg.SubscriptionWorkerEnabled {
 		go worker.Run(ctx)
+	}
+	if cfg.PaymentReconciliationWorkerEnabled {
+		go reconciliationWorker.Run(ctx)
 	}
 	slog.Info("Starting billing service", "port", cfg.Port)
 	go func() {

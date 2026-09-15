@@ -63,6 +63,14 @@ type TransactionLockingRepository interface {
 	ClaimReminderEmail(ctx context.Context, id uuid.UUID, sentAt time.Time, intervalDays int) (bool, error)
 }
 
+type PaymentReconciliationRepository interface {
+	Ensure(ctx context.Context, reconciliation *domain.PaymentReconciliation) error
+	GetByTransactionID(ctx context.Context, transactionID uuid.UUID) (*domain.PaymentReconciliation, error)
+	ClaimDue(ctx context.Context, transactionID uuid.UUID, now time.Time, lease time.Duration) (*domain.PaymentReconciliation, error)
+	MarkActive(ctx context.Context, id uuid.UUID, completedAt time.Time) error
+	MarkRetry(ctx context.Context, id uuid.UUID, nextAttemptAt time.Time, lastError string, maxAttempts int) error
+}
+
 type BillingTransactionManager interface {
 	WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error
 }
