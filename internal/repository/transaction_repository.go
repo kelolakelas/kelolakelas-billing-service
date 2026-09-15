@@ -39,7 +39,7 @@ func (r *transactionRepository) GetByMerchantOrderID(ctx context.Context, mercha
 
 func (r *transactionRepository) GetByEnrollmentID(ctx context.Context, enrollmentID uuid.UUID) (*domain.Transaction, error) {
 	var tx domain.Transaction
-	if err := r.db.WithContext(ctx).Where("enrollment_id = ?", enrollmentID).Order("created_at DESC").First(&tx).Error; err != nil {
+	if err := r.getDB(ctx).Where("enrollment_id = ?", enrollmentID).Order("created_at DESC").First(&tx).Error; err != nil {
 		return nil, err
 	}
 	return &tx, nil
@@ -47,13 +47,13 @@ func (r *transactionRepository) GetByEnrollmentID(ctx context.Context, enrollmen
 
 func (r *transactionRepository) GetBySubscriptionPeriod(ctx context.Context, subscriptionID uuid.UUID, period time.Time) (*domain.Transaction, error) {
 	var tx domain.Transaction
-	err := r.db.WithContext(ctx).Where("subscription_id = ? AND billing_period_start = ?", subscriptionID, period).First(&tx).Error
+	err := r.getDB(ctx).Where("subscription_id = ? AND billing_period_start = ?", subscriptionID, period).First(&tx).Error
 	return &tx, err
 }
 
 func (r *transactionRepository) GetByPaymentIntentID(ctx context.Context, paymentIntentID string) (*domain.Transaction, error) {
 	var tx domain.Transaction
-	if err := r.db.WithContext(ctx).First(&tx, "payment_intent_id = ?", paymentIntentID).Error; err != nil {
+	if err := r.getDB(ctx).First(&tx, "payment_intent_id = ?", paymentIntentID).Error; err != nil {
 		return nil, err
 	}
 	return &tx, nil

@@ -22,7 +22,7 @@ func (r *subscriptionRepository) Create(ctx context.Context, subscription *domai
 
 func (r *subscriptionRepository) GetByEnrollmentID(ctx context.Context, enrollmentID uuid.UUID) (*domain.Subscription, error) {
 	var subscription domain.Subscription
-	if err := r.db.WithContext(ctx).First(&subscription, "enrollment_id = ?", enrollmentID).Error; err != nil {
+	if err := GetDB(ctx, r.db).First(&subscription, "enrollment_id = ?", enrollmentID).Error; err != nil {
 		return nil, err
 	}
 	return &subscription, nil
