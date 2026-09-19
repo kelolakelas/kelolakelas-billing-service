@@ -235,7 +235,7 @@ Adapter saat ini mengirim field inti berikut:
 - `email`, `phoneNumber`, dan `customerVaName` dari detail user.
 - `callbackUrl` dan `returnUrl` dari config loader.
 - `paymentMethod` default `VC`.
-- `expiryPeriod` `1440` menit.
+- `expiryPeriod` dari `SUBSCRIPTION_PAYMENT_EXPIRY_PERIOD_DAYS` (default `14` hari) dikonversi ke menit.
 
 ### Response sukses
 
@@ -304,13 +304,24 @@ Server callback mengembalikan HTTP `200 OK` setelah callback valid dan paid stat
 ### Aturan pemrosesan billing service
 
 - `resultCode=00`: transaksi menjadi `paid` secara idempotent.
-- `resultCode=01` atau `02`: transaksi menjadi `failed` sesuai mapping aplikasi.
+- `resultCode=01` atau `02`: transaksi menjadi `failed` sesuai mapping aplikasi, dan hanya untuk transaksi yang masih `pending` atau `creating`.
+- `resultCode` di luar `00`, `01`, dan `02`: tidak mengubah state transaksi. Billing service menulis structured log level `WARN` (`merchant_order_id`, `transaction_id`, `enrollment_id`, `result_code`, `payment_code`, `reference`, `transaction_status`) dan tetap menjawab HTTP `200 OK` agar provider tidak melakukan retry. Kode baru dari Duitku harus dievaluasi manual sebelum dipetakan ke state lokal.
 - Callback transaksi yang sudah `paid` tidak boleh mengkredit wallet dua kali.
 - Aktivasi enrollment yang gagal setelah commit pembayaran disimpan di `payment_reconciliations` dan dicoba ulang oleh worker billing secara idempotent.
 - `amount` harus sama dengan `gross_amount` transaksi.
 - Kredit ledger memakai `net_amount`, bukan `gross_amount`.
 - Subscription `next_billing_date` dihitung ulang berdasarkan billing cycle.
 - Redirect browser tidak digunakan untuk mengubah status transaksi.
+
+### Kedaluwarsa invoice dan pembayaran terlambat
+
+Billing service menyimpan batas waktu invoice pada `transactions.invoice_expires_at` dan waktu kedaluwarsa aktual pada `transactions.expired_at`.
+
+- Nilai `invoice_expires_at` berasal dari `expiryPeriod` yang sama dengan yang dikirim ke Duitku, sehingga batas lokal dan batas channel tetap konsisten.
+- Worker `TRANSACTION_EXPIRY_WORKER_ENABLED` (default aktif, interval `TRANSACTION_EXPIRY_WORKER_INTERVAL_MINUTES` default `5` menit) memindahkan transaksi `pending` yang melewati `invoice_expires_at` menjadi `expired` dengan satu conditional update (`status = 'pending' AND invoice_expires_at <= now`) plus `FOR UPDATE SKIP LOCKED`, sehingga aman dijalankan beberapa replika sekaligus dan idempotent.
+- Transaksi `expired` dapat diterbitkan invoice baru melalui alur idempotent yang sama selama enrollment masih valid; invoice lama dipakai ulang bila belum kedaluwarsa.
+- Pembayaran sah tetap dihormati: callback `resultCode=00` untuk transaksi yang sudah `expired` tetap mengubah status menjadi `paid`, menjalankan rekonsiliasi aktivasi seperti biasa, dan mempertahankan `expired_at` sebagai bukti urutan kejadian. Kedaluwarsa lokal tidak boleh menghilangkan pembayaran yang berhasil.
+- Worker subscription renewal memakai kembali status `expired`; saat menerbitkan invoice perpanjangan, kolom `invoice_expires_at`/`expired_at` direset agar tidak membawa nilai periode sebelumnya.
 
 ## 8. Redirect
 
@@ -483,7 +494,7 @@ Nilai expiry adalah menit dan bergantung pada channel. Nilai default atau maksim
 | Jenius Pay | 10 | 10 |
 | Tokopedia | 1440 | 1440 |
 
-Adapter KelolaKelas menggunakan `1440` menit untuk inquiry.
+Adapter KelolaKelas mengirim `expiryPeriod` dari `SUBSCRIPTION_PAYMENT_EXPIRY_PERIOD_DAYS` (default `14` hari = `20160` menit) dan memakai nilai yang sama untuk `transactions.invoice_expires_at`. Nilai harus berada dalam batas channel yang dipakai (`VC`), jika tidak Duitku menolak inquiry.
 
 ## 13. HTTP Response dan Error
 
@@ -513,6 +524,9 @@ Billing service meneruskan error Duitku sebagai error internal checkout dan meng
 - Verifikasi signature dengan API key sandbox yang benar.
 - Uji idempotensi dengan mengirim callback sukses yang sama lebih dari sekali.
 - Uji nominal salah, merchant code salah, signature salah, order ID tidak dikenal, dan result code gagal.
+- Uji result code di luar `00`/`01`/`02`: transaksi tidak boleh berubah dan endpoint tetap menjawab `200` dengan log `WARN`.
+- Uji callback `00` yang tiba setelah transaksi ditandai `expired` oleh worker: transaksi harus menjadi `paid` dan rekonsiliasi tetap berjalan tanpa membuat transaksi ganda.
+- Uji worker kedaluwarsa terhadap transaksi `pending` yang belum jatuh tempo, transaksi tanpa `invoice_expires_at`, dan transaksi `paid` agar tidak ada yang ikut berubah.
 - Untuk kartu sandbox yang didokumentasikan Duitku: Visa `4000 0000 0000 0044`, expiry `03/33`, CVV `123`; Mastercard `5500 0000 0000 0004`, expiry `03/33`, CVV `123`.
 - Gunakan demo transaksi sandbox Duitku untuk channel yang tidak memiliki kredensial khusus.
 

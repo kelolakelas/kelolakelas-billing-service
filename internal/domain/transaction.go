@@ -15,6 +15,52 @@ var (
 	ErrInvalidTransactionStatus = errors.New("invalid transaction status")
 )
 
+// Transaction status values. `expired` is terminal for unpaid invoices: a later
+// paid callback is still accepted by the billing service and moves the row to
+// `paid` so a genuine late payment is never lost.
+const (
+	TransactionStatusPending = "pending"
+	TransactionStatusPaid    = "paid"
+	TransactionStatusFailed  = "failed"
+	TransactionStatusExpired = "expired"
+)
+
+// Duitku callback result codes. `00` is a successful payment, `01`/`02` are
+// failures, and any other value is unknown and must not change local state.
+const (
+	ResultCodeSuccess  = "00"
+	ResultCodeFailed   = "01"
+	ResultCodeCanceled = "02"
+)
+
+// DefaultInvoiceValidityMinutes is the invoice validity requested from the
+// payment gateway when no explicit period is configured (24 hours). It matches
+// the Duitku adapter default so the stored expiry mirrors the requested one.
+const DefaultInvoiceValidityMinutes = 1440
+
+// InvoiceExpiresAt returns the local expiry deadline for an invoice requested
+// with the given validity in minutes. A non-positive value falls back to
+// DefaultInvoiceValidityMinutes so a misconfigured duration can never produce an
+// already expired invoice.
+func InvoiceExpiresAt(now time.Time, validityMinutes int) time.Time {
+	if validityMinutes <= 0 {
+		validityMinutes = DefaultInvoiceValidityMinutes
+	}
+	return now.Add(time.Duration(validityMinutes) * time.Minute)
+}
+
+// IsKnownResultCode reports whether the callback result code has a documented
+// meaning. Unknown codes must be logged and must not change transaction state.
+// Source: _docs/duitku/api.md section 7.
+func IsKnownResultCode(code string) bool {
+	switch code {
+	case ResultCodeSuccess, ResultCodeFailed, ResultCodeCanceled:
+		return true
+	default:
+		return false
+	}
+}
+
 type Transaction struct {
 	ID                     uuid.UUID      `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
 	MerchantOrderID        string         `gorm:"type:varchar(255);unique;not null" json:"merchant_order_id"`
@@ -42,6 +88,8 @@ type Transaction struct {
 	PaymentLinkSentAt      *time.Time     `gorm:"type:timestamp" json:"payment_link_sent_at,omitempty"`
 	LastReminderSentAt     *time.Time     `gorm:"type:timestamp" json:"last_reminder_sent_at,omitempty"`
 	ReminderCount          int            `gorm:"type:int;not null;default:0" json:"reminder_count"`
+	InvoiceExpiresAt       *time.Time     `gorm:"type:timestamp;index" json:"invoice_expires_at,omitempty"`
+	ExpiredAt              *time.Time     `gorm:"type:timestamp" json:"expired_at,omitempty"`
 	PaidAt                 *time.Time     `gorm:"type:timestamp" json:"paid_at,omitempty"`
 	CreatedAt              time.Time      `gorm:"type:timestamp;not null;default:now()" json:"created_at"`
 	UpdatedAt              time.Time      `gorm:"type:timestamp;not null;default:now()" json:"updated_at"`
@@ -96,6 +144,8 @@ type TransactionResponse struct {
 	PaymentGatewayProvider      string     `json:"payment_gateway_provider,omitempty"`
 	PaymentIntentID             string     `json:"payment_intent_id,omitempty"`
 	CheckoutSessionURL          string     `json:"checkout_session_url,omitempty"`
+	InvoiceExpiresAt            *time.Time `json:"invoice_expires_at,omitempty"`
+	ExpiredAt                   *time.Time `json:"expired_at,omitempty"`
 	PaidAt                      *time.Time `json:"paid_at,omitempty"`
 	CreatedAt                   time.Time  `json:"created_at"`
 	UpdatedAt                   time.Time  `json:"updated_at"`

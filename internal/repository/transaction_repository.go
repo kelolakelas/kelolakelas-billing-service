@@ -115,6 +115,53 @@ func (r *transactionRepository) ClaimInvoice(ctx context.Context, id uuid.UUID) 
 	return result.RowsAffected == 1, result.Error
 }
 
+// ClaimReinvoice takes ownership of issuing a replacement invoice for a transaction
+// whose invoice can no longer be paid. Only `expired` transactions, unpaid
+// transactions that never received a payment link, and unpaid transactions whose
+// stored expiry has already passed can be claimed; a transaction that has been
+// paid, or whose payment link is still valid, never matches. The previous payment
+// link and payment intent are cleared so the stale invoice is never served again,
+// and the stored expiry stays in place until the replacement invoice is created.
+func (r *transactionRepository) ClaimReinvoice(ctx context.Context, id uuid.UUID, now time.Time) (bool, error) {
+	result := r.getDB(ctx).Model(&domain.Transaction{}).
+		Where(`id = ? AND (
+			status = ? OR (
+				status IN ? AND (
+					checkout_session_url IS NULL OR
+					(invoice_expires_at IS NOT NULL AND invoice_expires_at <= ?)
+				)
+			)
+		)`, id, domain.TransactionStatusExpired, []string{domain.TransactionStatusPending, domain.TransactionStatusFailed}, now).
+		Updates(map[string]interface{}{
+			"status":               "creating",
+			"checkout_session_url": nil,
+			"payment_intent_id":    nil,
+		})
+	return result.RowsAffected == 1, result.Error
+}
+
+// ExpireDue moves due unpaid transactions to the terminal `expired` status in a
+// single conditional update. The inner SELECT uses FOR UPDATE SKIP LOCKED so
+// concurrent replicas claim disjoint rows, and the outer WHERE re-checks the
+// status so an invoice paid in the meantime is never expired.
+func (r *transactionRepository) ExpireDue(ctx context.Context, now time.Time, limit int) (int64, error) {
+	if limit <= 0 {
+		return 0, nil
+	}
+	result := r.getDB(ctx).Exec(`
+		UPDATE transactions
+		SET status = ?, expired_at = ?, updated_at = ?
+		WHERE status = ? AND id IN (
+			SELECT id FROM transactions
+			WHERE status = ? AND deleted_at IS NULL AND invoice_expires_at IS NOT NULL AND invoice_expires_at <= ?
+			ORDER BY invoice_expires_at
+			LIMIT ?
+			FOR UPDATE SKIP LOCKED
+		)`, domain.TransactionStatusExpired, now, now, domain.TransactionStatusPending,
+		domain.TransactionStatusPending, now, limit)
+	return result.RowsAffected, result.Error
+}
+
 func (r *transactionRepository) ClaimPaymentLinkEmail(ctx context.Context, id uuid.UUID, sentAt time.Time) (bool, error) {
 	result := r.getDB(ctx).Model(&domain.Transaction{}).Where("id = ? AND payment_link_sent_at IS NULL AND status = ?", id, "pending").Update("payment_link_sent_at", sentAt)
 	return result.RowsAffected == 1, result.Error

@@ -59,8 +59,17 @@ type TransactionRepository interface {
 type TransactionLockingRepository interface {
 	GetByIDForUpdate(ctx context.Context, id uuid.UUID) (*domain.Transaction, error)
 	ClaimInvoice(ctx context.Context, id uuid.UUID) (bool, error)
+	ClaimReinvoice(ctx context.Context, id uuid.UUID, now time.Time) (bool, error)
 	ClaimPaymentLinkEmail(ctx context.Context, id uuid.UUID, sentAt time.Time) (bool, error)
 	ClaimReminderEmail(ctx context.Context, id uuid.UUID, sentAt time.Time, intervalDays int) (bool, error)
+}
+
+// TransactionExpiryRepository expires unpaid transactions whose invoice validity
+// window has passed. ExpireDue must be safe to run concurrently from several
+// replicas: rows are claimed with a single conditional update so a transaction
+// moves to `expired` at most once.
+type TransactionExpiryRepository interface {
+	ExpireDue(ctx context.Context, now time.Time, limit int) (int64, error)
 }
 
 type PaymentReconciliationRepository interface {

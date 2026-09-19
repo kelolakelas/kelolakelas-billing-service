@@ -67,6 +67,13 @@ func main() {
 	txUsecase := usecase.NewTransactionUsecaseWithReconciliation(txRepo, walletRepo, ledgerRepo, subscriptionRepo, duitkuClient, academicClient, cfg, txManager, reconciliationRepo)
 	worker := usecase.NewSubscriptionWorker(subscriptionRepo, txRepo, duitkuClient, email.NewResendClient(cfg.ResendAPIKey, cfg.ResendFromEmail), cfg)
 	reconciliationWorker := usecase.NewPaymentReconciliationWorker(reconciliationRepo, academicClient, cfg)
+	// The expiry worker only needs the expiry capability; when the repository does
+	// not provide it the worker stays idle instead of failing startup.
+	expiryRepo, expiryRepoOK := txRepo.(repository.TransactionExpiryRepository)
+	if !expiryRepoOK {
+		slog.Warn("transaction repository does not support expiry; unpaid transactions will not be expired automatically")
+	}
+	expiryWorker := usecase.NewTransactionExpiryWorker(expiryRepo, cfg)
 
 	// Initialize Handlers
 	txHandler := handler.NewTransactionHandler(txUsecase, duitkuClient)
@@ -102,6 +109,9 @@ func main() {
 	}
 	if cfg.PaymentReconciliationWorkerEnabled {
 		go reconciliationWorker.Run(ctx)
+	}
+	if cfg.TransactionExpiryWorkerEnabled {
+		go expiryWorker.Run(ctx)
 	}
 	slog.Info("Starting billing service", "port", cfg.Port)
 	go func() {

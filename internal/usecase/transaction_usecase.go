@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"strconv"
 	"strings"
@@ -91,9 +92,10 @@ func (u *transactionUsecase) GetTransaction(ctx context.Context, id uuid.UUID) (
 }
 
 func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, req *domain.GenerateSubscriptionPaymentRequest) (*domain.GenerateSubscriptionPaymentResponse, error) {
+	now := time.Now()
 	if existing, err := u.txRepo.GetByEnrollmentID(ctx, req.EnrollmentID); err == nil {
-		if existing.CheckoutSessionURL != nil && *existing.CheckoutSessionURL != "" {
-			return &domain.GenerateSubscriptionPaymentResponse{TransactionID: existing.ID, CheckoutSessionURL: *existing.CheckoutSessionURL, PaymentIntentID: valueOrEmpty(existing.PaymentIntentID), GrossAmount: existing.GrossAmount, Status: existing.Status}, nil
+		if response, ok := reusableInvoiceResponse(existing, now); ok {
+			return response, nil
 		}
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, fmt.Errorf("failed to find existing enrollment payment: %w", err)
@@ -113,7 +115,7 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 		title = fmt.Sprintf("Class Subscription Enrollment %s", req.EnrollmentID.String())
 	}
 
-	nextBillingDate, err := nextBillingDate(time.Now(), req.BillingCycle)
+	nextBillingDate, err := nextBillingDate(now, req.BillingCycle)
 	if err != nil {
 		return nil, err
 	}
@@ -155,43 +157,73 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 		NetAmount:              netAmount,
 		SubscriptionID:         &subscription.ID,
 		Currency:               "IDR",
-		Status:                 "pending",
+		Status:                 domain.TransactionStatusPending,
 		IsSandbox:              strings.Contains(strings.ToLower(u.cfg.DuitkuAPIBaseURL), "sandbox"),
 		PaymentGatewayProvider: &provider,
 		BillingEmail:           req.SenderEmail,
 	}
-	initialPeriod := time.Now()
-	tx.BillingPeriodStart = &initialPeriod
+	tx.BillingPeriodStart = &now
 
-	if existing, err := u.txRepo.GetByEnrollmentID(ctx, req.EnrollmentID); err == nil {
+	existing, err := u.txRepo.GetByEnrollmentID(ctx, req.EnrollmentID)
+	ownsInvoice := false
+	switch {
+	case err == nil:
+		// The enrollment already has a transaction: reuse the row and its merchant
+		// order id so the parent keeps a single payment record, then take ownership of
+		// issuing a replacement invoice. ClaimReinvoice only matches unpaid rows, so a
+		// transaction that was paid in the meantime is never re-invoiced.
+		switch existing.Status {
+		case domain.TransactionStatusPaid:
+			return nil, domain.ErrTransactionAlreadyPaid
+		case "cancelled", "refunded":
+			return nil, domain.ErrInvalidTransactionStatus
+		}
 		tx = existing
 		tx.SubscriptionID = &subscription.ID
-	} else if err := u.txRepo.Create(ctx, tx); err != nil {
-		if existing, getErr := u.txRepo.GetByEnrollmentID(ctx, req.EnrollmentID); getErr == nil {
-			tx = existing
-		} else {
-			return nil, fmt.Errorf("failed to create transaction record: %w", err)
-		}
-	}
-	if lockingRepo, ok := u.txRepo.(repository.TransactionLockingRepository); ok {
-		claimed, claimErr := lockingRepo.ClaimInvoice(ctx, tx.ID)
+		claimed, claimErr := u.claimReinvoice(ctx, tx.ID, now)
 		if claimErr != nil {
-			return nil, fmt.Errorf("failed to claim invoice creation: %w", claimErr)
+			return nil, claimErr
 		}
 		if !claimed {
-			current, getErr := u.txRepo.GetByEnrollmentID(ctx, req.EnrollmentID)
-			if getErr != nil {
-				return nil, fmt.Errorf("failed to read invoice state: %w", getErr)
-			}
-			if current.CheckoutSessionURL != nil && *current.CheckoutSessionURL != "" {
-				return &domain.GenerateSubscriptionPaymentResponse{TransactionID: current.ID, CheckoutSessionURL: *current.CheckoutSessionURL, PaymentIntentID: valueOrEmpty(current.PaymentIntentID), GrossAmount: current.GrossAmount, Status: current.Status}, nil
+			if response, ok := reusableInvoiceResponse(existing, now); ok {
+				return response, nil
 			}
 			return nil, fmt.Errorf("invoice creation is already in progress")
 		}
+		ownsInvoice = true
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		if createErr := u.txRepo.Create(ctx, tx); createErr != nil {
+			if current, getErr := u.txRepo.GetByEnrollmentID(ctx, req.EnrollmentID); getErr == nil {
+				tx = current
+			} else {
+				return nil, fmt.Errorf("failed to create transaction record: %w", createErr)
+			}
+		}
+	default:
+		return nil, fmt.Errorf("failed to find existing enrollment payment: %w", err)
+	}
+	if !ownsInvoice {
+		if lockingRepo, ok := u.txRepo.(repository.TransactionLockingRepository); ok {
+			claimed, claimErr := lockingRepo.ClaimInvoice(ctx, tx.ID)
+			if claimErr != nil {
+				return nil, fmt.Errorf("failed to claim invoice creation: %w", claimErr)
+			}
+			if !claimed {
+				current, getErr := u.txRepo.GetByEnrollmentID(ctx, req.EnrollmentID)
+				if getErr != nil {
+					return nil, fmt.Errorf("failed to read invoice state: %w", getErr)
+				}
+				if response, ok := reusableInvoiceResponse(current, now); ok {
+					return response, nil
+				}
+				return nil, fmt.Errorf("invoice creation is already in progress")
+			}
+		}
 	}
 
+	validityMinutes := u.invoiceValidityMinutes()
 	invoice, err := u.paymentGateway.CreateInvoice(ctx, &domain.CreateInvoiceRequest{
-		MerchantOrderID: transactionID.String(),
+		MerchantOrderID: tx.MerchantOrderID,
 		Amount:          grossAmount,
 		ProductDetails:  title,
 		Email:           req.SenderEmail,
@@ -200,11 +232,17 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 		PaymentMethod:   "VC",
 		CallbackURL:     u.cfg.DuitkuCallbackURL,
 		ReturnURL:       u.cfg.DuitkuReturnURL,
-		ExpiryPeriod:    0,
+		ExpiryPeriod:    validityMinutes,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate Duitku payment link: %w", err)
 	}
+	// The replacement invoice makes the transaction payable again, so it returns to
+	// `pending` with a fresh expiry that mirrors the validity requested above.
+	expiresAt := domain.InvoiceExpiresAt(now, validityMinutes)
+	tx.Status = domain.TransactionStatusPending
+	tx.ExpiredAt = nil
+	tx.InvoiceExpiresAt = &expiresAt
 	tx.PaymentIntentID = &invoice.Reference
 	tx.CheckoutSessionURL = &invoice.PaymentURL
 	if err := u.txRepo.Update(ctx, tx); err != nil {
@@ -218,6 +256,58 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 		GrossAmount:        grossAmount,
 		Status:             tx.Status,
 	}, nil
+}
+
+// reusableInvoiceResponse returns the existing payment link when the transaction
+// still has an invoice the parent can actually pay, so repeated requests for the
+// same enrollment stay idempotent instead of creating another invoice. A link
+// whose stored validity has already passed is never returned.
+func reusableInvoiceResponse(tx *domain.Transaction, now time.Time) (*domain.GenerateSubscriptionPaymentResponse, bool) {
+	if tx == nil || tx.CheckoutSessionURL == nil || *tx.CheckoutSessionURL == "" {
+		return nil, false
+	}
+	switch tx.Status {
+	case domain.TransactionStatusPending, domain.TransactionStatusFailed, "creating":
+	default:
+		return nil, false
+	}
+	if tx.InvoiceExpiresAt != nil && !tx.InvoiceExpiresAt.After(now) {
+		return nil, false
+	}
+	return &domain.GenerateSubscriptionPaymentResponse{
+		TransactionID:      tx.ID,
+		CheckoutSessionURL: *tx.CheckoutSessionURL,
+		PaymentIntentID:    valueOrEmpty(tx.PaymentIntentID),
+		GrossAmount:        tx.GrossAmount,
+		Status:             tx.Status,
+	}, true
+}
+
+// claimReinvoice takes ownership of creating a replacement invoice for the given
+// transaction. Repositories that cannot do the atomic claim fall back to the
+// upstream invoice-creation guard.
+func (u *transactionUsecase) claimReinvoice(ctx context.Context, id uuid.UUID, now time.Time) (bool, error) {
+	lockingRepo, ok := u.txRepo.(repository.TransactionLockingRepository)
+	if !ok {
+		return true, nil
+	}
+	claimed, err := lockingRepo.ClaimReinvoice(ctx, id, now)
+	if err != nil {
+		return false, fmt.Errorf("failed to claim replacement invoice: %w", err)
+	}
+	return claimed, nil
+}
+
+// invoiceValidityMinutes is the payment window requested from the payment gateway
+// and stored as the local invoice expiry. Both the first invoice and renewal
+// invoices use the configured subscription payment period so a single setting
+// describes how long an unpaid invoice stays payable.
+func (u *transactionUsecase) invoiceValidityMinutes() int {
+	days := u.cfg.SubscriptionPaymentExpiryPeriodDays
+	if days <= 0 {
+		days = 14
+	}
+	return days * 24 * 60
 }
 
 func valueOrEmpty(value *string) string {
@@ -240,7 +330,7 @@ func transactionResponse(tx *domain.Transaction) *domain.TransactionResponse {
 	if tx.CheckoutSessionURL != nil {
 		checkout = *tx.CheckoutSessionURL
 	}
-	response := &domain.TransactionResponse{ID: tx.ID, MerchantOrderID: tx.MerchantOrderID, TenantID: tx.TenantID, ParentID: tx.ParentID, StudentID: tx.StudentID, EnrollmentID: tx.EnrollmentID, VoucherID: tx.VoucherID, SubtotalAmount: tx.SubtotalAmount, DiscountAmount: tx.DiscountAmount, GrossAmount: tx.GrossAmount, PlatformFee: tx.PlatformFee, PaymentGatewayFee: tx.PaymentGatewayFee, NetAmount: tx.NetAmount, Currency: tx.Currency, Status: tx.Status, PaymentGatewayProvider: provider, PaymentIntentID: intent, CheckoutSessionURL: checkout, PaidAt: tx.PaidAt, CreatedAt: tx.CreatedAt, UpdatedAt: tx.UpdatedAt}
+	response := &domain.TransactionResponse{ID: tx.ID, MerchantOrderID: tx.MerchantOrderID, TenantID: tx.TenantID, ParentID: tx.ParentID, StudentID: tx.StudentID, EnrollmentID: tx.EnrollmentID, VoucherID: tx.VoucherID, SubtotalAmount: tx.SubtotalAmount, DiscountAmount: tx.DiscountAmount, GrossAmount: tx.GrossAmount, PlatformFee: tx.PlatformFee, PaymentGatewayFee: tx.PaymentGatewayFee, NetAmount: tx.NetAmount, Currency: tx.Currency, Status: tx.Status, PaymentGatewayProvider: provider, PaymentIntentID: intent, CheckoutSessionURL: checkout, InvoiceExpiresAt: tx.InvoiceExpiresAt, ExpiredAt: tx.ExpiredAt, PaidAt: tx.PaidAt, CreatedAt: tx.CreatedAt, UpdatedAt: tx.UpdatedAt}
 	if tx.Reconciliation != nil {
 		status := tx.Reconciliation.Status
 		if status == domain.ReconciliationStatusPending || status == domain.ReconciliationStatusProcessing {
@@ -386,9 +476,14 @@ func (u *transactionUsecase) handleDuitkuWebhookLocal(ctx context.Context, paylo
 		return fmt.Errorf("callback amount does not match transaction")
 	}
 
-	if payload.ResultCode == "00" {
+	switch payload.ResultCode {
+	case domain.ResultCodeSuccess:
+		// A successful payment is honoured even when the local expiry already fired:
+		// the parent really did pay, so the transaction becomes `paid` and the usual
+		// activation reconciliation is enqueued. `expired_at` is kept as evidence that
+		// the local deadline had passed while the payment was still settling.
 		now := time.Now()
-		tx.Status = "paid"
+		tx.Status = domain.TransactionStatusPaid
 		tx.PaidAt = &now
 		if payload.PaymentCode != "" {
 			tx.PaymentMethod = &payload.PaymentCode
@@ -476,11 +571,31 @@ func (u *transactionUsecase) handleDuitkuWebhookLocal(ctx context.Context, paylo
 		if result != nil {
 			*result = tx
 		}
-	} else if payload.ResultCode == "01" || payload.ResultCode == "02" {
-		tx.Status = "failed"
-		if err := u.txRepo.Update(ctx, tx); err != nil {
-			return fmt.Errorf("failed to update transaction status to failed: %w", err)
+	case domain.ResultCodeFailed, domain.ResultCodeCanceled:
+		// Failure codes only ever move an unpaid transaction that is still awaiting a
+		// decision to `failed`. A terminal state is never rewritten: a transaction
+		// that was paid in the meantime keeps `paid`, and one the local expiry already
+		// closed stays `expired` instead of losing that evidence.
+		if tx.Status == domain.TransactionStatusPending || tx.Status == "creating" {
+			tx.Status = domain.TransactionStatusFailed
+			if err := u.txRepo.Update(ctx, tx); err != nil {
+				return fmt.Errorf("failed to update transaction status to failed: %w", err)
+			}
 		}
+	default:
+		// Provider result codes outside the documented contract (00 success, 01
+		// failed, 02 canceled) are not a financial outcome we can act on, so the
+		// transaction is left untouched. The callback is still recorded in the logs
+		// for investigation; see _docs/duitku/api.md for the provider contract.
+		slog.WarnContext(ctx, "ignoring Duitku callback with unknown result code",
+			"merchant_order_id", tx.MerchantOrderID,
+			"transaction_id", tx.ID.String(),
+			"enrollment_id", tx.EnrollmentID.String(),
+			"result_code", payload.ResultCode,
+			"payment_code", payload.PaymentCode,
+			"reference", payload.Reference,
+			"transaction_status", tx.Status,
+		)
 	}
 
 	return nil
