@@ -36,6 +36,8 @@ type Config struct {
 	PaymentReconciliationWorkerEnabled         bool   `mapstructure:"PAYMENT_RECONCILIATION_WORKER_ENABLED"`
 	PaymentReconciliationWorkerIntervalMinutes int    `mapstructure:"PAYMENT_RECONCILIATION_WORKER_INTERVAL_MINUTES"`
 	PaymentReconciliationMaxAttempts           int    `mapstructure:"PAYMENT_RECONCILIATION_MAX_ATTEMPTS"`
+	TransactionExpiryWorkerEnabled             bool   `mapstructure:"TRANSACTION_EXPIRY_WORKER_ENABLED"`
+	TransactionExpiryWorkerIntervalMinutes     int    `mapstructure:"TRANSACTION_EXPIRY_WORKER_INTERVAL_MINUTES"`
 	ResendAPIKey                               string `mapstructure:"RESEND_API_KEY"`
 	ResendFromEmail                            string `mapstructure:"RESEND_FROM_EMAIL"`
 }
@@ -58,7 +60,7 @@ func LoadConfig() (Config, error) {
 		"DATABASE_URL", "DB_HOST", "DB_PORT", "DB_SSLMODE", "DB_CHANNEL_BINDING", "DB_USER", "DB_PASSWORD", "DB_NAME",
 		"PORT", "DUITKU_API_BASE_URL", "DUITKU_API_KEY", "DUITKU_MERCHANT_CODE",
 		"DUITKU_CALLBACK_URL", "DUITKU_RETURN_URL", "ACADEMIC_SERVICE_URL", "INTERNAL_SERVICE_CREDENTIAL", "JWT_SECRET",
-		"SUBSCRIPTION_WORKER_ENABLED", "SUBSCRIPTION_WORKER_INTERVAL_MINUTES", "SUBSCRIPTION_PAYMENT_REMINDER_INTERVAL_DAYS", "SUBSCRIPTION_PAYMENT_EXPIRY_PERIOD_DAYS", "PAYMENT_RECONCILIATION_WORKER_ENABLED", "PAYMENT_RECONCILIATION_WORKER_INTERVAL_MINUTES", "PAYMENT_RECONCILIATION_MAX_ATTEMPTS", "RESEND_API_KEY", "RESEND_FROM_EMAIL",
+		"SUBSCRIPTION_WORKER_ENABLED", "SUBSCRIPTION_WORKER_INTERVAL_MINUTES", "SUBSCRIPTION_PAYMENT_REMINDER_INTERVAL_DAYS", "SUBSCRIPTION_PAYMENT_EXPIRY_PERIOD_DAYS", "PAYMENT_RECONCILIATION_WORKER_ENABLED", "PAYMENT_RECONCILIATION_WORKER_INTERVAL_MINUTES", "PAYMENT_RECONCILIATION_MAX_ATTEMPTS", "TRANSACTION_EXPIRY_WORKER_ENABLED", "TRANSACTION_EXPIRY_WORKER_INTERVAL_MINUTES", "RESEND_API_KEY", "RESEND_FROM_EMAIL",
 	} {
 		if err := viper.BindEnv(key); err != nil {
 			return Config{}, err
@@ -117,6 +119,12 @@ func LoadConfig() (Config, error) {
 	}
 	if config.PaymentReconciliationMaxAttempts == 0 {
 		config.PaymentReconciliationMaxAttempts = 10
+	}
+	if !viper.IsSet("TRANSACTION_EXPIRY_WORKER_ENABLED") {
+		config.TransactionExpiryWorkerEnabled = true
+	}
+	if config.TransactionExpiryWorkerIntervalMinutes == 0 {
+		config.TransactionExpiryWorkerIntervalMinutes = 5
 	}
 	if config.DuitkuAPIBaseURL == "" {
 		config.DuitkuAPIBaseURL = "https://sandbox.duitku.com/webapi/api/merchant"

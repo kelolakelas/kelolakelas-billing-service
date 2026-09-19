@@ -102,6 +102,8 @@ func (w *SubscriptionWorker) process(ctx context.Context, subscription *domain.S
 			tx.Status = "pending"
 			tx.CheckoutSessionURL = nil
 			tx.PaymentIntentID = nil
+			tx.InvoiceExpiresAt = nil
+			tx.ExpiredAt = nil
 			if err := w.transactions.Update(ctx, tx); err != nil {
 				return err
 			}
@@ -112,14 +114,20 @@ func (w *SubscriptionWorker) process(ctx context.Context, subscription *domain.S
 				return claimErr
 			}
 		}
-		invoice, invoiceErr := w.gateway.CreateInvoice(ctx, &domain.CreateInvoiceRequest{MerchantOrderID: tx.MerchantOrderID, Amount: tx.GrossAmount, ProductDetails: subscription.ClassName, Email: tx.BillingEmail, PaymentMethod: "VC", CallbackURL: w.cfg.DuitkuCallbackURL, ReturnURL: w.cfg.DuitkuReturnURL, ExpiryPeriod: w.cfg.SubscriptionPaymentExpiryPeriodDays * 1440})
+		validityMinutes := w.cfg.SubscriptionPaymentExpiryPeriodDays * 24 * 60
+		if validityMinutes <= 0 {
+			validityMinutes = domain.DefaultInvoiceValidityMinutes
+		}
+		invoice, invoiceErr := w.gateway.CreateInvoice(ctx, &domain.CreateInvoiceRequest{MerchantOrderID: tx.MerchantOrderID, Amount: tx.GrossAmount, ProductDetails: subscription.ClassName, Email: tx.BillingEmail, PaymentMethod: "VC", CallbackURL: w.cfg.DuitkuCallbackURL, ReturnURL: w.cfg.DuitkuReturnURL, ExpiryPeriod: validityMinutes})
 		if invoiceErr != nil {
 			tx.Status = "failed"
 			_ = w.transactions.Update(ctx, tx)
 			return invoiceErr
 		}
+		expiresAt := domain.InvoiceExpiresAt(now, validityMinutes)
 		tx.PaymentIntentID = &invoice.Reference
 		tx.CheckoutSessionURL = &invoice.PaymentURL
+		tx.InvoiceExpiresAt = &expiresAt
 		tx.Status = "pending"
 		if err := w.transactions.Update(ctx, tx); err != nil {
 			return err

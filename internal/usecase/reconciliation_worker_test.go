@@ -22,11 +22,13 @@ type reconciliationRepoStub struct {
 	claimCount  int
 	active      bool
 	retry       bool
+	ensureCount int
 	lastError   string
 	maxAttempts int
 }
 
 func (r *reconciliationRepoStub) Ensure(context.Context, *domain.PaymentReconciliation) error {
+	r.ensureCount++
 	return nil
 }
 func (r *reconciliationRepoStub) GetByTransactionID(context.Context, uuid.UUID) (*domain.PaymentReconciliation, error) {
@@ -59,6 +61,8 @@ func (a *academicActivationStub) ActivateEnrollment(context.Context, uuid.UUID) 
 	a.calls++
 	return a.err
 }
+
+func (a *academicActivationStub) callsSet() bool { return a.calls > 0 }
 
 func reconciliationConfig() config.Config {
 	return config.Config{PaymentReconciliationMaxAttempts: 3, PaymentReconciliationWorkerIntervalMinutes: 1}
