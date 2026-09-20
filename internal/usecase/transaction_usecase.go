@@ -249,6 +249,16 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 		return nil, fmt.Errorf("failed to save Duitku payment details: %w", err)
 	}
 
+	// The transaction is payable again, so a seat release that has not been claimed
+	// yet is withdrawn and must never drop this seat. The withdrawal runs after the
+	// status change on purpose: if it fails, the transaction is recoverable by
+	// re-requesting the invoice, whereas cancelling first could strand a seat with no
+	// job left to release it. A release that already ran is left alone, because the
+	// seat is genuinely gone and the paid callback must surface that rejection.
+	if err := u.cancelPendingSeatRelease(ctx, tx); err != nil {
+		return nil, err
+	}
+
 	return &domain.GenerateSubscriptionPaymentResponse{
 		TransactionID:      tx.ID,
 		CheckoutSessionURL: invoice.PaymentURL,
@@ -337,6 +347,10 @@ func transactionResponse(tx *domain.Transaction) *domain.TransactionResponse {
 			status = "reconciling"
 		}
 		response.ReconciliationStatus = status
+		// The kind tells an operator whether the outstanding work confirms the seat
+		// (activation) or gives it back (release), which is what distinguishes a
+		// payment still settling from a failed payment that freed the seat again.
+		response.ReconciliationKind = tx.Reconciliation.Kind
 		response.ReconciliationAttempts = tx.Reconciliation.AttemptCount
 		response.ReconciliationNextAttemptAt = tx.Reconciliation.NextAttemptAt
 		if tx.Reconciliation.LastError != nil {
@@ -345,6 +359,7 @@ func transactionResponse(tx *domain.Transaction) *domain.TransactionResponse {
 	}
 	return response
 }
+
 func (u *transactionUsecase) List(ctx context.Context, tenantID, parentID *uuid.UUID, query domain.TransactionQuery) (*domain.TransactionListResponse, error) {
 	if query.Page < 1 {
 		query.Page = 1
@@ -404,13 +419,48 @@ func (u *transactionUsecase) ensureReconciliation(ctx context.Context, tx *domai
 		return nil
 	}
 	now := time.Now()
-	return u.reconciliationRepo.Ensure(ctx, &domain.PaymentReconciliation{
+	return u.reconciliationRepo.EnsureActivation(ctx, &domain.PaymentReconciliation{
 		ID:            uuid.New(),
 		TransactionID: tx.ID,
 		EnrollmentID:  tx.EnrollmentID,
+		Kind:          domain.ReconciliationKindActivation,
 		Status:        domain.ReconciliationStatusPending,
 		NextAttemptAt: &now,
 	})
+}
+
+// enqueueSeatRelease records that a failed or expired transaction must give its
+// Academic seat back. It is called only after the terminal status is committed, so
+// a rollback never leaves a release job for a transaction that is still payable.
+// Non-enrollment transactions (billing-only records with no Academic enrollment)
+// owe nothing and are skipped.
+func (u *transactionUsecase) enqueueSeatRelease(ctx context.Context, tx *domain.Transaction) error {
+	if u.reconciliationRepo == nil || tx == nil || tx.EnrollmentID == uuid.Nil {
+		return nil
+	}
+	now := time.Now()
+	return u.reconciliationRepo.EnqueueRelease(ctx, &domain.PaymentReconciliation{
+		ID:            uuid.New(),
+		TransactionID: tx.ID,
+		EnrollmentID:  tx.EnrollmentID,
+		Kind:          domain.ReconciliationKindRelease,
+		Status:        domain.ReconciliationStatusPending,
+		NextAttemptAt: &now,
+	})
+}
+
+// cancelPendingSeatRelease withdraws a seat release that has not been attempted yet,
+// so issuing a replacement invoice cannot race the worker into dropping a seat the
+// parent is about to pay for. A release that is already processing or finished is
+// deliberately untouched: those seats are gone, and the failure must stay visible.
+func (u *transactionUsecase) cancelPendingSeatRelease(ctx context.Context, tx *domain.Transaction) error {
+	if u.reconciliationRepo == nil || tx == nil || tx.EnrollmentID == uuid.Nil {
+		return nil
+	}
+	if err := u.reconciliationRepo.CancelPendingRelease(ctx, tx.ID); err != nil {
+		return fmt.Errorf("failed to withdraw pending enrollment release: %w", err)
+	}
+	return nil
 }
 
 func (u *transactionUsecase) reconcilePayment(ctx context.Context, tx *domain.Transaction) error {
@@ -575,11 +625,17 @@ func (u *transactionUsecase) handleDuitkuWebhookLocal(ctx context.Context, paylo
 		// Failure codes only ever move an unpaid transaction that is still awaiting a
 		// decision to `failed`. A terminal state is never rewritten: a transaction
 		// that was paid in the meantime keeps `paid`, and one the local expiry already
-		// closed stays `expired` instead of losing that evidence.
+		// closed stays `expired` instead of losing that evidence. The seat is only
+		// released for a transaction this branch actually moved, and the release job is
+		// written through the same context so it commits or rolls back with the status
+		// change — a released seat can never outlive a failed status write.
 		if tx.Status == domain.TransactionStatusPending || tx.Status == "creating" {
 			tx.Status = domain.TransactionStatusFailed
 			if err := u.txRepo.Update(ctx, tx); err != nil {
 				return fmt.Errorf("failed to update transaction status to failed: %w", err)
+			}
+			if err := u.enqueueSeatRelease(ctx, tx); err != nil {
+				return fmt.Errorf("failed to enqueue enrollment release: %w", err)
 			}
 		}
 	default:
