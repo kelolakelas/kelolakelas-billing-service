@@ -58,8 +58,22 @@ type TransactionRepository interface {
 
 type TransactionLockingRepository interface {
 	GetByIDForUpdate(ctx context.Context, id uuid.UUID) (*domain.Transaction, error)
-	ClaimInvoice(ctx context.Context, id uuid.UUID) (bool, error)
-	ClaimReinvoice(ctx context.Context, id uuid.UUID, now time.Time) (bool, error)
+	// ClaimInvoice and ClaimReinvoice take exclusive ownership of creating an invoice
+	// by moving the row to `creating`. Both are conditional updates, so of any number
+	// of concurrent requests exactly one reports true and the others read the state
+	// the winner is producing instead of calling the provider again.
+	//
+	// Ownership is never permanent: a claim is released by RestoreFailedInvoiceClaim
+	// when the creating request reports a provider failure, and becomes reclaimable
+	// once claimTimeoutMinutes have passed since invoice_claimed_at when the claiming
+	// process died without reporting back. Passing a non-positive timeout applies
+	// domain.DefaultTransactionClaimTimeoutMinutes.
+	ClaimInvoice(ctx context.Context, id uuid.UUID, now time.Time, claimTimeoutMinutes int) (bool, error)
+	ClaimReinvoice(ctx context.Context, id uuid.UUID, now time.Time, claimTimeoutMinutes int) (bool, error)
+	// RestoreFailedInvoiceClaim returns a `creating` row to `failed` and records why
+	// the invoice creation failed. It matches nothing when the caller no longer owns
+	// the row, which is what keeps a late success or a concurrent cancellation safe.
+	RestoreFailedInvoiceClaim(ctx context.Context, id uuid.UUID, reason string, now time.Time) (bool, error)
 	ClaimPaymentLinkEmail(ctx context.Context, id uuid.UUID, sentAt time.Time) (bool, error)
 	ClaimReminderEmail(ctx context.Context, id uuid.UUID, sentAt time.Time, intervalDays int) (bool, error)
 	// CancelUnpaid marks the unpaid transactions of a withdrawn enrollment as

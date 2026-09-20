@@ -108,10 +108,57 @@ func (r *transactionRepository) GetByIDForUpdate(ctx context.Context, id uuid.UU
 	return &tx, nil
 }
 
-func (r *transactionRepository) ClaimInvoice(ctx context.Context, id uuid.UUID) (bool, error) {
+// ClaimInvoice takes exclusive ownership of creating an invoice for a transaction.
+// Exactly one caller can win: the statement only matches a row that is still waiting
+// for an invoice — `pending`/`failed` with no payment link — or a `creating` row whose
+// claim is older than the timeout, which is how a claim left behind by a process that
+// died mid-call becomes recoverable instead of blocking the enrollment forever.
+//
+// A `creating` row that also holds a checkout URL is never matched. That combination
+// means the provider did answer and the link was stored; reclaiming it would create a
+// second invoice for the same merchant order ID.
+//
+// The claim timestamp is refreshed on every acquisition so the age always measures the
+// current claim, and the failure reason of the previous attempt is cleared because the
+// caller is about to make a fresh one.
+func (r *transactionRepository) ClaimInvoice(ctx context.Context, id uuid.UUID, now time.Time, claimTimeoutMinutes int) (bool, error) {
+	if claimTimeoutMinutes <= 0 {
+		claimTimeoutMinutes = domain.DefaultTransactionClaimTimeoutMinutes
+	}
+	staleBefore := now.Add(-time.Duration(claimTimeoutMinutes) * time.Minute)
 	result := r.getDB(ctx).Model(&domain.Transaction{}).
-		Where("id = ? AND status IN ? AND checkout_session_url IS NULL", id, []string{"pending", "failed"}).
-		Updates(map[string]interface{}{"status": "creating"})
+		Where(`id = ? AND checkout_session_url IS NULL AND (
+			status IN ? OR (
+				status = ? AND (invoice_claimed_at IS NULL OR invoice_claimed_at <= ?)
+			)
+		)`, id, []string{domain.TransactionStatusPending, domain.TransactionStatusFailed}, domain.TransactionStatusCreating, staleBefore).
+		Updates(map[string]interface{}{
+			"status":                 domain.TransactionStatusCreating,
+			"invoice_claimed_at":     now,
+			"invoice_failure_reason": nil,
+			"updated_at":             now,
+		})
+	return result.RowsAffected == 1, result.Error
+}
+
+// RestoreFailedInvoiceClaim returns a transaction to a claimable status after the
+// provider call failed, recording why it failed. The restore is deliberately narrower
+// than the claim: it only matches the `creating` row the caller still owns, so an
+// invoice that was issued in the meantime is never pulled back to `failed` and a
+// cancellation that won the race is never overwritten. The payment link is checked as
+// well, because a response that arrived late means the invoice really does exist.
+//
+// The row keeps its payment link (none can be present, by the predicate above) and is
+// left with `invoice_failure_reason` set, which is the retry history an operator reads
+// while the next attempt clears it.
+func (r *transactionRepository) RestoreFailedInvoiceClaim(ctx context.Context, id uuid.UUID, reason string, now time.Time) (bool, error) {
+	result := r.getDB(ctx).Model(&domain.Transaction{}).
+		Where("id = ? AND status = ? AND checkout_session_url IS NULL", id, domain.TransactionStatusCreating).
+		Updates(map[string]interface{}{
+			"status":                 domain.TransactionStatusFailed,
+			"invoice_failure_reason": reason,
+			"updated_at":             now,
+		})
 	return result.RowsAffected == 1, result.Error
 }
 
@@ -122,7 +169,16 @@ func (r *transactionRepository) ClaimInvoice(ctx context.Context, id uuid.UUID) 
 // paid, or whose payment link is still valid, never matches. The previous payment
 // link and payment intent are cleared so the stale invoice is never served again,
 // and the stored expiry stays in place until the replacement invoice is created.
-func (r *transactionRepository) ClaimReinvoice(ctx context.Context, id uuid.UUID, now time.Time) (bool, error) {
+//
+// A row stranded in `creating` is handled here too: an abandoned claim with no payment
+// link has nothing left to pay, so it is released to `failed` and claimed in the same
+// statement. Without that arm the enrollment would be stuck in `creating` forever
+// whenever the replacement invoice never completed.
+func (r *transactionRepository) ClaimReinvoice(ctx context.Context, id uuid.UUID, now time.Time, claimTimeoutMinutes int) (bool, error) {
+	if claimTimeoutMinutes <= 0 {
+		claimTimeoutMinutes = domain.DefaultTransactionClaimTimeoutMinutes
+	}
+	staleBefore := now.Add(-time.Duration(claimTimeoutMinutes) * time.Minute)
 	result := r.getDB(ctx).Model(&domain.Transaction{}).
 		Where(`id = ? AND (
 			status = ? OR (
@@ -130,12 +186,20 @@ func (r *transactionRepository) ClaimReinvoice(ctx context.Context, id uuid.UUID
 					checkout_session_url IS NULL OR
 					(invoice_expires_at IS NOT NULL AND invoice_expires_at <= ?)
 				)
+			) OR (
+				status = ? AND checkout_session_url IS NULL AND
+				(invoice_claimed_at IS NULL OR invoice_claimed_at <= ?)
 			)
-		)`, id, domain.TransactionStatusExpired, []string{domain.TransactionStatusPending, domain.TransactionStatusFailed}, now).
+		)`, id, domain.TransactionStatusExpired,
+			[]string{domain.TransactionStatusPending, domain.TransactionStatusFailed}, now,
+			domain.TransactionStatusCreating, staleBefore).
 		Updates(map[string]interface{}{
-			"status":               "creating",
-			"checkout_session_url": nil,
-			"payment_intent_id":    nil,
+			"status":                 domain.TransactionStatusCreating,
+			"checkout_session_url":   nil,
+			"payment_intent_id":      nil,
+			"invoice_claimed_at":     now,
+			"invoice_failure_reason": nil,
+			"updated_at":             now,
 		})
 	return result.RowsAffected == 1, result.Error
 }
@@ -235,16 +299,21 @@ func (r *transactionRepository) CancelUnpaid(ctx context.Context, id uuid.UUID) 
 // learns it no longer owns the row and the withdrawal wins, which is the safe
 // outcome because the parent asked to stop paying. Only `creating` and `pending`
 // rows match, so a paid transaction is never moved back to awaiting payment.
+//
+// The claim bookkeeping is cleared in the same write: the row is no longer being
+// created, so it holds neither an outstanding claim nor a failure reason.
 func (r *transactionRepository) MarkInvoiceIssued(ctx context.Context, id uuid.UUID, checkoutSessionURL, paymentIntentID string, expiresAt time.Time) (bool, error) {
 	result := r.getDB(ctx).Model(&domain.Transaction{}).
 		Where("id = ? AND status IN ?", id, []string{domain.TransactionStatusCreating, domain.TransactionStatusPending}).
 		Updates(map[string]interface{}{
-			"status":               domain.TransactionStatusPending,
-			"expired_at":           nil,
-			"invoice_expires_at":   expiresAt,
-			"checkout_session_url": checkoutSessionURL,
-			"payment_intent_id":    paymentIntentID,
-			"updated_at":           time.Now(),
+			"status":                 domain.TransactionStatusPending,
+			"expired_at":             nil,
+			"invoice_expires_at":     expiresAt,
+			"checkout_session_url":   checkoutSessionURL,
+			"payment_intent_id":      paymentIntentID,
+			"invoice_claimed_at":     nil,
+			"invoice_failure_reason": nil,
+			"updated_at":             time.Now(),
 		})
 	return result.RowsAffected == 1, result.Error
 }
