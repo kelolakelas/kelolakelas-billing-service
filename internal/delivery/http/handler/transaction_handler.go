@@ -37,13 +37,11 @@ func (h *TransactionHandler) List(c *gin.Context) {
 		}
 	}
 	q := domain.TransactionQuery{Page: 1, PageSize: 20, Status: c.Query("status"), Search: c.Query("search")}
-	if q.Status != "" {
-		switch q.Status {
-		case "pending", "paid", "failed", "expired", "cancelled", "refunded":
-		default:
-			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Invalid transaction status", "data": nil})
-			return
-		}
+	if q.Status != "" && !domain.IsTransactionStatusFilterValue(q.Status) {
+		// The accepted values come from the domain instead of a local list, so every
+		// status the code can actually write stays filterable and cannot drift.
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Invalid transaction status", "data": nil})
+		return
 	}
 	for key, target := range map[string]*int{"page": &q.Page, "page_size": &q.PageSize} {
 		if v := c.Query(key); v != "" {

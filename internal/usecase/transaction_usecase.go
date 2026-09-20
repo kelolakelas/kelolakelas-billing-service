@@ -204,7 +204,7 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 	}
 	if !ownsInvoice {
 		if lockingRepo, ok := u.txRepo.(repository.TransactionLockingRepository); ok {
-			claimed, claimErr := lockingRepo.ClaimInvoice(ctx, tx.ID)
+			claimed, claimErr := lockingRepo.ClaimInvoice(ctx, tx.ID, now, u.claimTimeoutMinutes())
 			if claimErr != nil {
 				return nil, fmt.Errorf("failed to claim invoice creation: %w", claimErr)
 			}
@@ -235,6 +235,12 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 		ExpiryPeriod:    validityMinutes,
 	})
 	if err != nil {
+		// The claim is released on the same error path that took it, so a transient
+		// provider failure can never leave the enrollment holding a `creating` row that
+		// no later request is allowed to claim. The release is a conditional update: it
+		// only matches the row this call still owns, so a response that arrived late, or
+		// a cancellation that won the race, is never overwritten.
+		u.releaseFailedInvoiceClaim(ctx, tx.ID, err, now)
 		return nil, fmt.Errorf("failed to generate Duitku payment link: %w", err)
 	}
 	// The replacement invoice makes the transaction payable again, so it returns to
@@ -300,11 +306,53 @@ func (u *transactionUsecase) markInvoiceIssued(ctx context.Context, tx *domain.T
 	tx.InvoiceExpiresAt = &expiresAt
 	tx.PaymentIntentID = &invoice.Reference
 	tx.CheckoutSessionURL = &invoice.PaymentURL
+	tx.InvoiceClaimedAt = nil
+	tx.InvoiceFailureReason = nil
 	tx.UpdatedAt = now
 	if err := u.txRepo.Update(ctx, tx); err != nil {
 		return false, fmt.Errorf("failed to save Duitku payment details: %w", err)
 	}
 	return true, nil
+}
+
+// releaseFailedInvoiceClaim hands a refused or failed invoice creation back as a
+// claimable transaction and records why it failed, so the enrollment is never left
+// holding a `creating` row that no later request is allowed to claim.
+//
+// It is best effort on purpose: the caller is already returning the provider error,
+// and a failure to write the release must not replace that error with a less useful
+// one. The claim timeout covers this case, so a release that could not be written
+// still stops being a dead end once the claim ages out.
+func (u *transactionUsecase) releaseFailedInvoiceClaim(ctx context.Context, id uuid.UUID, cause error, now time.Time) {
+	releaseFailedInvoiceClaim(ctx, u.txRepo, id, cause, now)
+}
+
+// releaseFailedInvoiceClaim is the shared recovery used by every invoice-creation
+// path (direct payment requests and the subscription renewal worker) so a failed
+// attempt always leaves the transaction in the same recoverable state.
+//
+// The release is a conditional update that only matches the `creating` row the caller
+// still owns. When it matches nothing the transaction was already moved on — the
+// payment link was stored after all, or the parent cancelled while the provider was
+// being called — and that newer state must be preserved rather than overwritten.
+func releaseFailedInvoiceClaim(ctx context.Context, repo repository.TransactionRepository, id uuid.UUID, cause error, now time.Time) {
+	lockingRepo, ok := repo.(repository.TransactionLockingRepository)
+	if !ok {
+		return
+	}
+	reason := "invoice creation failed"
+	if cause != nil && cause.Error() != "" {
+		reason = cause.Error()
+	}
+	restored, err := lockingRepo.RestoreFailedInvoiceClaim(ctx, id, reason, now)
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to release invoice claim", "transaction_id", id.String(), "error", err)
+		return
+	}
+	if !restored {
+		slog.WarnContext(ctx, "invoice claim was not released because the transaction is no longer owned",
+			"transaction_id", id.String(), "reason", reason)
+	}
 }
 
 // reusableInvoiceResponse returns the existing payment link when the transaction
@@ -340,11 +388,21 @@ func (u *transactionUsecase) claimReinvoice(ctx context.Context, id uuid.UUID, n
 	if !ok {
 		return true, nil
 	}
-	claimed, err := lockingRepo.ClaimReinvoice(ctx, id, now)
+	claimed, err := lockingRepo.ClaimReinvoice(ctx, id, now, u.claimTimeoutMinutes())
 	if err != nil {
 		return false, fmt.Errorf("failed to claim replacement invoice: %w", err)
 	}
 	return claimed, nil
+}
+
+// claimTimeoutMinutes is how long a `creating` row may stay unowned before another
+// request is allowed to take it over. A stored value of zero means the deployment
+// never configured one, so the domain default applies.
+func (u *transactionUsecase) claimTimeoutMinutes() int {
+	if u.cfg.TransactionClaimTimeoutMinutes <= 0 {
+		return domain.DefaultTransactionClaimTimeoutMinutes
+	}
+	return u.cfg.TransactionClaimTimeoutMinutes
 }
 
 // invoiceValidityMinutes is the payment window requested from the payment gateway
