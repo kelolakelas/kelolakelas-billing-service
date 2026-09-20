@@ -19,11 +19,12 @@ import (
 // Setting missing=true makes every lookup report gorm.ErrRecordNotFound so the
 // first-invoice path can be exercised.
 type transactionRepoStub struct {
-	transaction *domain.Transaction
-	missing     bool
-	createCount int
-	updateCount int
-	claimCount  int
+	transaction      *domain.Transaction
+	missing          bool
+	createCount      int
+	updateCount      int
+	claimCount       int
+	cancelUnpaidRuns int
 }
 
 func (r *transactionRepoStub) Create(_ context.Context, transaction *domain.Transaction) error {
@@ -72,8 +73,8 @@ func (r *transactionRepoStub) ClaimInvoice(context.Context, uuid.UUID) (bool, er
 }
 
 // ClaimReinvoice mirrors the SQL guard of the real repository: only unpaid rows
-// can be claimed for a replacement invoice, and claiming clears the stale
-// gateway references so the next invoice starts from a clean slate.
+// can be claimed for a replacement invoice, claiming moves the row to `creating`,
+// and the stale gateway references are cleared so the next invoice starts clean.
 func (r *transactionRepoStub) ClaimReinvoice(_ context.Context, _ uuid.UUID, _ time.Time) (bool, error) {
 	r.claimCount++
 	current, err := r.current()
@@ -84,6 +85,7 @@ func (r *transactionRepoStub) ClaimReinvoice(_ context.Context, _ uuid.UUID, _ t
 	case domain.TransactionStatusPaid, "cancelled", "refunded":
 		return false, nil
 	}
+	current.Status = domain.TransactionStatusCreating
 	current.CheckoutSessionURL = nil
 	current.PaymentIntentID = nil
 	return true, nil
@@ -95,6 +97,45 @@ func (r *transactionRepoStub) ClaimPaymentLinkEmail(context.Context, uuid.UUID, 
 
 func (r *transactionRepoStub) ClaimReminderEmail(context.Context, uuid.UUID, time.Time, int) (bool, error) {
 	return false, nil
+}
+
+// CancelUnpaid mirrors the SQL predicate of the real repository: only unpaid rows
+// become cancelled, and a settled row is left untouched so the caller can refuse the
+// cancellation instead of dropping a paid seat. Like the real statement it also
+// records the seat release, so a usecase test that goes through this stub exercises
+// the same side effect the database performs.
+func (r *transactionRepoStub) CancelUnpaid(_ context.Context, id uuid.UUID) (bool, error) {
+	r.cancelUnpaidRuns++
+	current, err := r.current()
+	if err != nil || current.ID != id {
+		return false, nil
+	}
+	switch current.Status {
+	case domain.TransactionStatusPending, domain.TransactionStatusCreating,
+		domain.TransactionStatusFailed, domain.TransactionStatusExpired:
+		current.Status = domain.TransactionStatusCancelled
+		return true, nil
+	}
+	return false, nil
+}
+
+// MarkInvoiceIssued mirrors the conditional update of the real repository: the row
+// only accepts a payment link while it is still expecting one, so a cancellation that
+// landed first is not silently overwritten.
+func (r *transactionRepoStub) MarkInvoiceIssued(_ context.Context, id uuid.UUID, checkoutSessionURL, paymentIntentID string, expiresAt time.Time) (bool, error) {
+	current, err := r.current()
+	if err != nil || current.ID != id {
+		return false, nil
+	}
+	if current.Status != domain.TransactionStatusCreating && current.Status != domain.TransactionStatusPending {
+		return false, nil
+	}
+	current.Status = domain.TransactionStatusPending
+	current.ExpiredAt = nil
+	current.InvoiceExpiresAt = &expiresAt
+	current.CheckoutSessionURL = &checkoutSessionURL
+	current.PaymentIntentID = &paymentIntentID
+	return true, nil
 }
 
 func (r *transactionRepoStub) current() (*domain.Transaction, error) {

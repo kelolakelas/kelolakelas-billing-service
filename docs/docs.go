@@ -35,13 +35,13 @@ const docTemplate = `{
                         "schema": {
                             "allOf": [
                                 {
-                                    "$ref": "#/definitions/domain.HTTPResponse"
+                                    "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse"
                                 },
                                 {
                                     "type": "object",
                                     "properties": {
                                         "data": {
-                                            "$ref": "#/definitions/domain.TransactionListResponse"
+                                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.TransactionListResponse"
                                         }
                                     }
                                 }
@@ -80,13 +80,13 @@ const docTemplate = `{
                         "schema": {
                             "allOf": [
                                 {
-                                    "$ref": "#/definitions/domain.HTTPResponse"
+                                    "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse"
                                 },
                                 {
                                     "type": "object",
                                     "properties": {
                                         "data": {
-                                            "$ref": "#/definitions/domain.TransactionResponse"
+                                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.TransactionResponse"
                                         }
                                     }
                                 }
@@ -117,7 +117,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/domain.DuitkuCallbackPayload"
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.DuitkuCallbackPayload"
                         }
                     }
                 ],
@@ -125,31 +125,31 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/domain.HTTPResponse"
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/domain.ErrorResponse"
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/domain.ErrorResponse"
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/domain.ErrorResponse"
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/domain.ErrorResponse"
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
                         }
                     }
                 }
@@ -175,7 +175,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/domain.GenerateSubscriptionPaymentRequest"
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.GenerateSubscriptionPaymentRequest"
                         }
                     }
                 ],
@@ -185,13 +185,13 @@ const docTemplate = `{
                         "schema": {
                             "allOf": [
                                 {
-                                    "$ref": "#/definitions/domain.HTTPResponse"
+                                    "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse"
                                 },
                                 {
                                     "type": "object",
                                     "properties": {
                                         "data": {
-                                            "$ref": "#/definitions/domain.GenerateSubscriptionPaymentResponse"
+                                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.GenerateSubscriptionPaymentResponse"
                                         }
                                     }
                                 }
@@ -201,13 +201,83 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/domain.ErrorResponse"
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/domain.ErrorResponse"
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/internal/billing/transactions/cancel": {
+            "post": {
+                "description": "Internal service-to-service endpoint that marks the unpaid transaction of an enrollment as ` + "`" + `cancelled` + "`" + `. The transition is idempotent, never rewrites a paid or refunded transaction, and reports 404 when the enrollment has no transaction at all.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Billing"
+                ],
+                "summary": "Cancel the unpaid transaction of a cancelled enrollment",
+                "parameters": [
+                    {
+                        "description": "Enrollment to cancel",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.CancelEnrollmentPaymentRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.TransactionResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
                         }
                     }
                 }
@@ -215,7 +285,18 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "domain.DuitkuCallbackPayload": {
+        "github_com_kelolakelas_kelolakelas-billing-service_internal_domain.CancelEnrollmentPaymentRequest": {
+            "type": "object",
+            "required": [
+                "enrollment_id"
+            ],
+            "properties": {
+                "enrollment_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_kelolakelas_kelolakelas-billing-service_internal_domain.DuitkuCallbackPayload": {
             "type": "object",
             "required": [
                 "amount",
@@ -257,7 +338,7 @@ const docTemplate = `{
                 }
             }
         },
-        "domain.ErrorResponse": {
+        "github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse": {
             "type": "object",
             "properties": {
                 "data": {},
@@ -269,7 +350,7 @@ const docTemplate = `{
                 }
             }
         },
-        "domain.GenerateSubscriptionPaymentRequest": {
+        "github_com_kelolakelas_kelolakelas-billing-service_internal_domain.GenerateSubscriptionPaymentRequest": {
             "type": "object",
             "required": [
                 "billing_cycle",
@@ -336,7 +417,7 @@ const docTemplate = `{
                 }
             }
         },
-        "domain.GenerateSubscriptionPaymentResponse": {
+        "github_com_kelolakelas_kelolakelas-billing-service_internal_domain.GenerateSubscriptionPaymentResponse": {
             "type": "object",
             "properties": {
                 "checkout_session_url": {
@@ -356,7 +437,7 @@ const docTemplate = `{
                 }
             }
         },
-        "domain.HTTPResponse": {
+        "github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse": {
             "type": "object",
             "properties": {
                 "data": {},
@@ -368,13 +449,13 @@ const docTemplate = `{
                 }
             }
         },
-        "domain.TransactionListResponse": {
+        "github_com_kelolakelas_kelolakelas-billing-service_internal_domain.TransactionListResponse": {
             "type": "object",
             "properties": {
                 "items": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/domain.TransactionResponse"
+                        "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.TransactionResponse"
                     }
                 },
                 "pagination": {
@@ -396,7 +477,7 @@ const docTemplate = `{
                 }
             }
         },
-        "domain.TransactionResponse": {
+        "github_com_kelolakelas_kelolakelas-billing-service_internal_domain.TransactionResponse": {
             "type": "object",
             "properties": {
                 "checkout_session_url": {
@@ -414,10 +495,16 @@ const docTemplate = `{
                 "enrollment_id": {
                     "type": "string"
                 },
+                "expired_at": {
+                    "type": "string"
+                },
                 "gross_amount": {
                     "type": "integer"
                 },
                 "id": {
+                    "type": "string"
+                },
+                "invoice_expires_at": {
                     "type": "string"
                 },
                 "merchant_order_id": {
@@ -443,6 +530,21 @@ const docTemplate = `{
                 },
                 "platform_fee": {
                     "type": "integer"
+                },
+                "reconciliation_attempts": {
+                    "type": "integer"
+                },
+                "reconciliation_kind": {
+                    "type": "string"
+                },
+                "reconciliation_last_error": {
+                    "type": "string"
+                },
+                "reconciliation_next_attempt_at": {
+                    "type": "string"
+                },
+                "reconciliation_status": {
+                    "type": "string"
                 },
                 "status": {
                     "type": "string"

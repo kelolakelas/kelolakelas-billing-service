@@ -1,6 +1,13 @@
 basePath: /
 definitions:
-  domain.DuitkuCallbackPayload:
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.CancelEnrollmentPaymentRequest:
+    properties:
+      enrollment_id:
+        type: string
+    required:
+    - enrollment_id
+    type: object
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.DuitkuCallbackPayload:
     properties:
       amount:
         type: string
@@ -29,7 +36,7 @@ definitions:
     - resultCode
     - signature
     type: object
-  domain.ErrorResponse:
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse:
     properties:
       data: {}
       message:
@@ -37,7 +44,7 @@ definitions:
       status:
         type: string
     type: object
-  domain.GenerateSubscriptionPaymentRequest:
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.GenerateSubscriptionPaymentRequest:
     properties:
       billing_cycle:
         enum:
@@ -85,7 +92,7 @@ definitions:
     - subtotal_amount
     - tenant_id
     type: object
-  domain.GenerateSubscriptionPaymentResponse:
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.GenerateSubscriptionPaymentResponse:
     properties:
       checkout_session_url:
         type: string
@@ -98,7 +105,7 @@ definitions:
       transaction_id:
         type: string
     type: object
-  domain.HTTPResponse:
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse:
     properties:
       data: {}
       message:
@@ -106,11 +113,11 @@ definitions:
       status:
         type: string
     type: object
-  domain.TransactionListResponse:
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.TransactionListResponse:
     properties:
       items:
         items:
-          $ref: '#/definitions/domain.TransactionResponse'
+          $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.TransactionResponse'
         type: array
       pagination:
         properties:
@@ -124,7 +131,7 @@ definitions:
             type: integer
         type: object
     type: object
-  domain.TransactionResponse:
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.TransactionResponse:
     properties:
       checkout_session_url:
         type: string
@@ -136,9 +143,13 @@ definitions:
         type: integer
       enrollment_id:
         type: string
+      expired_at:
+        type: string
       gross_amount:
         type: integer
       id:
+        type: string
+      invoice_expires_at:
         type: string
       merchant_order_id:
         type: string
@@ -156,6 +167,16 @@ definitions:
         type: string
       platform_fee:
         type: integer
+      reconciliation_attempts:
+        type: integer
+      reconciliation_kind:
+        type: string
+      reconciliation_last_error:
+        type: string
+      reconciliation_next_attempt_at:
+        type: string
+      reconciliation_status:
+        type: string
       status:
         type: string
       student_id:
@@ -184,10 +205,10 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/domain.HTTPResponse'
+            - $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/domain.TransactionListResponse'
+                  $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.TransactionListResponse'
               type: object
       security:
       - BearerAuth: []
@@ -209,10 +230,10 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/domain.HTTPResponse'
+            - $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/domain.TransactionResponse'
+                  $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.TransactionResponse'
               type: object
       security:
       - BearerAuth: []
@@ -231,30 +252,30 @@ paths:
         name: payload
         required: true
         schema:
-          $ref: '#/definitions/domain.DuitkuCallbackPayload'
+          $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.DuitkuCallbackPayload'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/domain.HTTPResponse'
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/domain.ErrorResponse'
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/domain.ErrorResponse'
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/domain.ErrorResponse'
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/domain.ErrorResponse'
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
       summary: Handle Duitku payment webhook callback
       tags:
       - Billing
@@ -269,7 +290,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/domain.GenerateSubscriptionPaymentRequest'
+          $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.GenerateSubscriptionPaymentRequest'
       produces:
       - application/json
       responses:
@@ -277,20 +298,66 @@ paths:
           description: Created
           schema:
             allOf:
-            - $ref: '#/definitions/domain.HTTPResponse'
+            - $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/domain.GenerateSubscriptionPaymentResponse'
+                  $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.GenerateSubscriptionPaymentResponse'
               type: object
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/domain.ErrorResponse'
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/domain.ErrorResponse'
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
       summary: Generate subscription payment from an internal service
+      tags:
+      - Billing
+  /internal/billing/transactions/cancel:
+    post:
+      consumes:
+      - application/json
+      description: Internal service-to-service endpoint that marks the unpaid transaction
+        of an enrollment as `cancelled`. The transition is idempotent, never rewrites
+        a paid or refunded transaction, and reports 404 when the enrollment has no
+        transaction at all.
+      parameters:
+      - description: Enrollment to cancel
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.CancelEnrollmentPaymentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.TransactionResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+      summary: Cancel the unpaid transaction of a cancelled enrollment
       tags:
       - Billing
 securityDefinitions:

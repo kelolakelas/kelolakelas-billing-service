@@ -188,6 +188,67 @@ func (r *transactionRepository) ExpireDue(ctx context.Context, now time.Time, li
 	return int64(len(expiredIDs)), nil
 }
 
+// CancelUnpaid marks the unpaid transactions of a withdrawn enrollment as
+// cancelled and withdraws any seat release that has not been claimed yet, in one
+// statement. A transaction that already settled is never rewritten: `paid` and
+// `refunded` are excluded, so money that arrived is never hidden behind a
+// cancellation. `creating` is cancellable on purpose — a transaction stuck there is
+// the record of an invoice generation that never completed, and without this the
+// enrollment could never be cancelled — while MarkInvoiceIssued refuses to write a
+// payment link onto the row this statement just cancelled. The seat release job is
+// inserted with ON CONFLICT DO NOTHING, so a release already accepted or already
+// claimed is left untouched: the seat really is free in that case, and the Academic
+// cancellation is what makes the state consistent, not a second job.
+func (r *transactionRepository) CancelUnpaid(ctx context.Context, id uuid.UUID) (bool, error) {
+	now := time.Now()
+	var cancelled []uuid.UUID
+	err := r.getDB(ctx).Raw(`
+		WITH target AS (
+			UPDATE transactions
+			SET status = ?, updated_at = ?
+			WHERE id = ? AND deleted_at IS NULL
+				AND (status = ? OR status = ? OR status = ? OR status = ?)
+			RETURNING id, enrollment_id
+		), released AS (
+			INSERT INTO payment_reconciliations (id, transaction_id, enrollment_id, kind, status, attempt_count, next_attempt_at, created_at, updated_at)
+			SELECT gen_random_uuid(), id, enrollment_id, ?, ?, 0, ?, ?, ?
+			FROM target
+			WHERE enrollment_id <> ?
+			ON CONFLICT (transaction_id) DO NOTHING
+			RETURNING transaction_id
+		)
+		SELECT id FROM target`,
+		domain.TransactionStatusCancelled, now,
+		id,
+		domain.TransactionStatusPending, domain.TransactionStatusCreating, domain.TransactionStatusFailed, domain.TransactionStatusExpired,
+		domain.ReconciliationKindRelease, domain.ReconciliationStatusPending, now, now, now,
+		uuid.Nil).Scan(&cancelled).Error
+	if err != nil {
+		return false, err
+	}
+	return len(cancelled) > 0, nil
+}
+
+// MarkInvoiceIssued stores a payment link on a transaction that is still waiting for
+// one. The status guard re-checks the row at write time, so a cancellation that won
+// the race is never overwritten by the invoice creation it was racing: the caller
+// learns it no longer owns the row and the withdrawal wins, which is the safe
+// outcome because the parent asked to stop paying. Only `creating` and `pending`
+// rows match, so a paid transaction is never moved back to awaiting payment.
+func (r *transactionRepository) MarkInvoiceIssued(ctx context.Context, id uuid.UUID, checkoutSessionURL, paymentIntentID string, expiresAt time.Time) (bool, error) {
+	result := r.getDB(ctx).Model(&domain.Transaction{}).
+		Where("id = ? AND status IN ?", id, []string{domain.TransactionStatusCreating, domain.TransactionStatusPending}).
+		Updates(map[string]interface{}{
+			"status":               domain.TransactionStatusPending,
+			"expired_at":           nil,
+			"invoice_expires_at":   expiresAt,
+			"checkout_session_url": checkoutSessionURL,
+			"payment_intent_id":    paymentIntentID,
+			"updated_at":           time.Now(),
+		})
+	return result.RowsAffected == 1, result.Error
+}
+
 func (r *transactionRepository) ClaimPaymentLinkEmail(ctx context.Context, id uuid.UUID, sentAt time.Time) (bool, error) {
 	result := r.getDB(ctx).Model(&domain.Transaction{}).Where("id = ? AND payment_link_sent_at IS NULL AND status = ?", id, "pending").Update("payment_link_sent_at", sentAt)
 	return result.RowsAffected == 1, result.Error

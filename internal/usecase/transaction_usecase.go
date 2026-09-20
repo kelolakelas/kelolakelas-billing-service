@@ -238,16 +238,28 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 		return nil, fmt.Errorf("failed to generate Duitku payment link: %w", err)
 	}
 	// The replacement invoice makes the transaction payable again, so it returns to
-	// `pending` with a fresh expiry that mirrors the validity requested above.
+	// `pending` with a fresh expiry that mirrors the validity requested above. The
+	// write is conditional: a cancellation that happened while the provider invoice
+	// was being created leaves the row in `cancelled`, and this statement then matches
+	// nothing. The payment link is discarded in that case, and the seat release job the
+	// cancellation enqueued still gives the seat back.
 	expiresAt := domain.InvoiceExpiresAt(now, validityMinutes)
+	issued, err := u.markInvoiceIssued(ctx, tx, invoice, expiresAt, now)
+	if err != nil {
+		return nil, err
+	}
+	if !issued {
+		if err := u.cancelPendingSeatRelease(ctx, tx); err != nil {
+			return nil, err
+		}
+		return nil, domain.ErrInvalidTransactionStatus
+	}
 	tx.Status = domain.TransactionStatusPending
 	tx.ExpiredAt = nil
 	tx.InvoiceExpiresAt = &expiresAt
 	tx.PaymentIntentID = &invoice.Reference
 	tx.CheckoutSessionURL = &invoice.PaymentURL
-	if err := u.txRepo.Update(ctx, tx); err != nil {
-		return nil, fmt.Errorf("failed to save Duitku payment details: %w", err)
-	}
+	tx.UpdatedAt = now
 
 	// The transaction is payable again, so a seat release that has not been claimed
 	// yet is withdrawn and must never drop this seat. The withdrawal runs after the
@@ -266,6 +278,33 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 		GrossAmount:        grossAmount,
 		Status:             tx.Status,
 	}, nil
+}
+
+// markInvoiceIssued stores the payment link created for a transaction and reports
+// whether the row still expected one. Repositories without the conditional update
+// fall back to the previous unconditional save, which is correct for the single
+// caller that owns the row through ClaimInvoice or ClaimReinvoice.
+func (u *transactionUsecase) markInvoiceIssued(ctx context.Context, tx *domain.Transaction, invoice *domain.CreateInvoiceResponse, expiresAt, now time.Time) (bool, error) {
+	if invoice == nil {
+		return false, fmt.Errorf("invoice response is missing")
+	}
+	if lockingRepo, ok := u.txRepo.(repository.TransactionLockingRepository); ok {
+		issued, err := lockingRepo.MarkInvoiceIssued(ctx, tx.ID, invoice.PaymentURL, invoice.Reference, expiresAt)
+		if err != nil {
+			return false, fmt.Errorf("failed to save Duitku payment details: %w", err)
+		}
+		return issued, nil
+	}
+	tx.Status = domain.TransactionStatusPending
+	tx.ExpiredAt = nil
+	tx.InvoiceExpiresAt = &expiresAt
+	tx.PaymentIntentID = &invoice.Reference
+	tx.CheckoutSessionURL = &invoice.PaymentURL
+	tx.UpdatedAt = now
+	if err := u.txRepo.Update(ctx, tx); err != nil {
+		return false, fmt.Errorf("failed to save Duitku payment details: %w", err)
+	}
+	return true, nil
 }
 
 // reusableInvoiceResponse returns the existing payment link when the transaction
@@ -358,6 +397,90 @@ func transactionResponse(tx *domain.Transaction) *domain.TransactionResponse {
 		}
 	}
 	return response
+}
+
+// CancelEnrollmentPayment withdraws the unpaid invoice of an enrollment that the
+// parent cancelled. The transition is deliberately asymmetric and idempotent:
+//
+//   - an unpaid transaction becomes `cancelled` and keeps a seat release job, so the
+//     provider invoice may still be payable but can never be turned into an
+//     activated seat without a paid callback being recorded;
+//   - a transaction that already settled is never rewritten. `refunded` and `paid`
+//     answer ErrInvalidTransactionStatus so the caller refuses the cancellation
+//     instead of dropping a seat that was paid for;
+//   - repeating the request for an already cancelled transaction is a success, so
+//     academic can safely retry after a failed attempt;
+//   - an enrollment with no transaction at all (invoice creation never completed) is
+//     still cancellable, because there is nothing to pay and the seat must be freed.
+func (u *transactionUsecase) CancelEnrollmentPayment(ctx context.Context, enrollmentID uuid.UUID) (*domain.TransactionResponse, error) {
+	if enrollmentID == uuid.Nil {
+		return nil, domain.ErrTransactionNotFound
+	}
+	tx, err := u.txRepo.GetByEnrollmentID(ctx, enrollmentID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, domain.ErrTransactionNotFound
+		}
+		return nil, fmt.Errorf("failed to find enrollment payment: %w", err)
+	}
+
+	switch tx.Status {
+	case domain.TransactionStatusCancelled:
+		return transactionResponse(tx), nil
+	case domain.TransactionStatusPaid, domain.TransactionStatusRefunded:
+		return nil, domain.ErrInvalidTransactionStatus
+	}
+
+	cancelled, err := u.cancelUnpaidTransaction(ctx, tx.ID)
+	if err != nil {
+		return nil, err
+	}
+	if !cancelled {
+		// The row changed between the read and the conditional update. Re-read it so
+		// the caller is answered from the state that actually won: a payment that
+		// settled in the meantime must be reported as a refusal, not as a success.
+		current, getErr := u.txRepo.GetByID(ctx, tx.ID)
+		if getErr != nil {
+			return nil, fmt.Errorf("failed to read cancellation result: %w", getErr)
+		}
+		if current.Status == domain.TransactionStatusCancelled {
+			return transactionResponse(current), nil
+		}
+		return nil, domain.ErrInvalidTransactionStatus
+	}
+
+	current, err := u.txRepo.GetByID(ctx, tx.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read cancelled transaction: %w", err)
+	}
+	return transactionResponse(current), nil
+}
+
+// cancelUnpaidTransaction performs the conditional update. Repositories that cannot
+// do it atomically fall back to the in-memory transition so a repository without the
+// locking capability still behaves consistently. The fallback enqueues the seat
+// release itself, because the atomic statement owns that job and a repository that
+// only transitions the status must not silently leave the seat held.
+func (u *transactionUsecase) cancelUnpaidTransaction(ctx context.Context, id uuid.UUID) (bool, error) {
+	if lockingRepo, ok := u.txRepo.(repository.TransactionLockingRepository); ok {
+		cancelled, err := lockingRepo.CancelUnpaid(ctx, id)
+		if err != nil {
+			return false, fmt.Errorf("failed to cancel unpaid transaction: %w", err)
+		}
+		return cancelled, nil
+	}
+	tx, err := u.txRepo.GetByID(ctx, id)
+	if err != nil {
+		return false, fmt.Errorf("failed to find transaction: %w", err)
+	}
+	tx.Status = domain.TransactionStatusCancelled
+	if err := u.txRepo.Update(ctx, tx); err != nil {
+		return false, fmt.Errorf("failed to cancel unpaid transaction: %w", err)
+	}
+	if err := u.enqueueSeatRelease(ctx, tx); err != nil {
+		return false, fmt.Errorf("failed to enqueue enrollment release: %w", err)
+	}
+	return true, nil
 }
 
 func (u *transactionUsecase) List(ctx context.Context, tenantID, parentID *uuid.UUID, query domain.TransactionQuery) (*domain.TransactionListResponse, error) {

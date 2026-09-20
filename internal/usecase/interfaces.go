@@ -21,6 +21,7 @@ type TransactionUsecase interface {
 	CreateTransaction(ctx context.Context, tx *domain.Transaction) error
 	GetTransaction(ctx context.Context, id uuid.UUID) (*domain.Transaction, error)
 	GenerateSubscriptionPayment(ctx context.Context, req *domain.GenerateSubscriptionPaymentRequest) (*domain.GenerateSubscriptionPaymentResponse, error)
+	CancelEnrollmentPayment(ctx context.Context, enrollmentID uuid.UUID) (*domain.TransactionResponse, error)
 	HandleDuitkuWebhook(ctx context.Context, payload *domain.DuitkuCallbackPayload) error
 	List(ctx context.Context, tenantID, parentID *uuid.UUID, query domain.TransactionQuery) (*domain.TransactionListResponse, error)
 	GetByIDScoped(ctx context.Context, tenantID, parentID *uuid.UUID, id uuid.UUID) (*domain.TransactionResponse, error)
