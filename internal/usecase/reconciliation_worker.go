@@ -73,11 +73,27 @@ func (w *PaymentReconciliationWorker) attempt(ctx context.Context, reconciliatio
 	return processClaimedReconciliation(ctx, w.reconciliations, w.academic, w.cfg, reconciliation, w.clock.Now())
 }
 
+// processClaimedReconciliation performs the Academic call a claimed job asks for.
+// An activation confirms a seat the parent paid for; a release gives the seat back
+// after a failed or expired payment. Both share the same durable retry loop, so a
+// transient Academic outage is retried with backoff and a permanent rejection is
+// eventually recorded as terminal_failed with the provider error in last_error.
+// An activation that Academic rejects with 409 (the seat is already dropped or held
+// by another payment) is not a transient error, but it is still recorded rather than
+// swallowed: the row keeps the rejection in last_error until it reaches the attempt
+// limit, which is the operator-visible signal that a paid enrollment did not activate.
 func processClaimedReconciliation(ctx context.Context, repo repository.PaymentReconciliationRepository, academicClient academic.Client, cfg config.Config, reconciliation *domain.PaymentReconciliation, now time.Time) error {
 	if academicClient == nil {
 		return repo.MarkRetry(ctx, reconciliation.ID, now.Add(reconciliationBackoff(reconciliation.AttemptCount)), "academic client is unavailable", cfg.PaymentReconciliationMaxAttempts)
 	}
-	if err := academicClient.ActivateEnrollment(ctx, reconciliation.EnrollmentID); err != nil {
+	var err error
+	switch reconciliation.Kind {
+	case domain.ReconciliationKindRelease:
+		err = academicClient.ReleaseEnrollment(ctx, reconciliation.EnrollmentID)
+	default:
+		err = academicClient.ActivateEnrollment(ctx, reconciliation.EnrollmentID)
+	}
+	if err != nil {
 		return repo.MarkRetry(ctx, reconciliation.ID, now.Add(reconciliationBackoff(reconciliation.AttemptCount)), err.Error(), cfg.PaymentReconciliationMaxAttempts)
 	}
 	return repo.MarkActive(ctx, reconciliation.ID, now)

@@ -13,8 +13,12 @@ import (
 	"github.com/google/uuid"
 )
 
+// Client performs the enrollment side effects billing owes Academic. Each call is
+// idempotent on the Academic side so the durable reconciliation worker can retry it
+// safely after a timeout or an outage.
 type Client interface {
 	ActivateEnrollment(ctx context.Context, enrollmentID uuid.UUID) error
+	ReleaseEnrollment(ctx context.Context, enrollmentID uuid.UUID) error
 }
 
 type client struct {
@@ -37,7 +41,18 @@ func NewClient(baseURL, credential string) Client {
 }
 
 func (c *client) ActivateEnrollment(ctx context.Context, enrollmentID uuid.UUID) error {
-	endpoint := fmt.Sprintf("%s/internal/enrollments/%s/activate", c.baseURL, enrollmentID.String())
+	return c.callEnrollment(ctx, enrollmentID, "activate")
+}
+
+// ReleaseEnrollment returns the seat held by an enrollment whose payment failed or
+// expired. Academic answers 200 for an enrollment that is already released, so a
+// retried release is a no-op instead of an error.
+func (c *client) ReleaseEnrollment(ctx context.Context, enrollmentID uuid.UUID) error {
+	return c.callEnrollment(ctx, enrollmentID, "release")
+}
+
+func (c *client) callEnrollment(ctx context.Context, enrollmentID uuid.UUID, action string) error {
+	endpoint := fmt.Sprintf("%s/internal/enrollments/%s/%s", c.baseURL, enrollmentID.String(), action)
 	body := map[string]string{}
 	jsonBytes, err := json.Marshal(body)
 	if err != nil {

@@ -67,13 +67,17 @@ type TransactionLockingRepository interface {
 // TransactionExpiryRepository expires unpaid transactions whose invoice validity
 // window has passed. ExpireDue must be safe to run concurrently from several
 // replicas: rows are claimed with a single conditional update so a transaction
-// moves to `expired` at most once.
+// moves to `expired` at most once. Expiring also enqueues the durable Academic
+// seat release in the same statement, so a seat is never left locked without a
+// retry job recording why.
 type TransactionExpiryRepository interface {
 	ExpireDue(ctx context.Context, now time.Time, limit int) (int64, error)
 }
 
 type PaymentReconciliationRepository interface {
-	Ensure(ctx context.Context, reconciliation *domain.PaymentReconciliation) error
+	EnsureActivation(ctx context.Context, reconciliation *domain.PaymentReconciliation) error
+	EnqueueRelease(ctx context.Context, reconciliation *domain.PaymentReconciliation) error
+	CancelPendingRelease(ctx context.Context, transactionID uuid.UUID) error
 	GetByTransactionID(ctx context.Context, transactionID uuid.UUID) (*domain.PaymentReconciliation, error)
 	ClaimDue(ctx context.Context, transactionID uuid.UUID, now time.Time, lease time.Duration) (*domain.PaymentReconciliation, error)
 	MarkActive(ctx context.Context, id uuid.UUID, completedAt time.Time) error

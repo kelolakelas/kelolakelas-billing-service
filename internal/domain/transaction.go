@@ -150,6 +150,7 @@ type TransactionResponse struct {
 	CreatedAt                   time.Time  `json:"created_at"`
 	UpdatedAt                   time.Time  `json:"updated_at"`
 	ReconciliationStatus        string     `json:"reconciliation_status,omitempty"`
+	ReconciliationKind          string     `json:"reconciliation_kind,omitempty"`
 	ReconciliationAttempts      int        `json:"reconciliation_attempts,omitempty"`
 	ReconciliationLastError     string     `json:"reconciliation_last_error,omitempty"`
 	ReconciliationNextAttemptAt *time.Time `json:"reconciliation_next_attempt_at,omitempty"`

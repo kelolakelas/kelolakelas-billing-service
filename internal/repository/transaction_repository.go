@@ -144,22 +144,48 @@ func (r *transactionRepository) ClaimReinvoice(ctx context.Context, id uuid.UUID
 // single conditional update. The inner SELECT uses FOR UPDATE SKIP LOCKED so
 // concurrent replicas claim disjoint rows, and the outer WHERE re-checks the
 // status so an invoice paid in the meantime is never expired.
+// ExpireDue marks due unpaid transactions as expired and enqueues their durable
+// Academic seat release in one statement, so there is no window in which a seat is
+// locked without a retry job recording why. The release job is inserted with
+// ON CONFLICT DO NOTHING against the unique transaction_id: a transaction whose
+// activation is still owed keeps that job, and a transaction that already activated
+// keeps its accepted activation. The statement returns one row per expired
+// transaction — not per inserted job — so callers can drain a backlog in batches.
 func (r *transactionRepository) ExpireDue(ctx context.Context, now time.Time, limit int) (int64, error) {
 	if limit <= 0 {
 		return 0, nil
 	}
-	result := r.getDB(ctx).Exec(`
-		UPDATE transactions
-		SET status = ?, expired_at = ?, updated_at = ?
-		WHERE status = ? AND id IN (
+	var expiredIDs []uuid.UUID
+	err := r.getDB(ctx).Raw(`
+		WITH due AS (
 			SELECT id FROM transactions
 			WHERE status = ? AND deleted_at IS NULL AND invoice_expires_at IS NOT NULL AND invoice_expires_at <= ?
 			ORDER BY invoice_expires_at
 			LIMIT ?
 			FOR UPDATE SKIP LOCKED
-		)`, domain.TransactionStatusExpired, now, now, domain.TransactionStatusPending,
-		domain.TransactionStatusPending, now, limit)
-	return result.RowsAffected, result.Error
+		), expired AS (
+			UPDATE transactions t
+			SET status = ?, expired_at = ?, updated_at = ?
+			FROM due
+			WHERE t.id = due.id AND t.status = ?
+			RETURNING t.id, t.enrollment_id
+		), released AS (
+			INSERT INTO payment_reconciliations (id, transaction_id, enrollment_id, kind, status, attempt_count, next_attempt_at, created_at, updated_at)
+			SELECT gen_random_uuid(), id, enrollment_id, ?, ?, 0, ?, ?, ?
+			FROM expired
+			WHERE enrollment_id <> ?
+			ON CONFLICT (transaction_id) DO NOTHING
+			RETURNING transaction_id
+		)
+		SELECT id FROM expired`,
+		domain.TransactionStatusPending, now, limit,
+		domain.TransactionStatusExpired, now, now, domain.TransactionStatusPending,
+		domain.ReconciliationKindRelease, domain.ReconciliationStatusPending, now, now, now,
+		uuid.Nil).Scan(&expiredIDs).Error
+	if err != nil {
+		return 0, err
+	}
+	return int64(len(expiredIDs)), nil
 }
 
 func (r *transactionRepository) ClaimPaymentLinkEmail(ctx context.Context, id uuid.UUID, sentAt time.Time) (bool, error) {
