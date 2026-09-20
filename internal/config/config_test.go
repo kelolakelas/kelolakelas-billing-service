@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/spf13/viper"
+
+	"github.com/kelolakelas/kelolakelas-billing-service/internal/domain"
 )
 
 func TestLoadConfig(t *testing.T) {
@@ -123,5 +125,42 @@ func TestLoadConfigRequiresJWTSecret(t *testing.T) {
 	t.Setenv("JWT_SECRET", "")
 	if _, err := LoadConfig(); err == nil {
 		t.Fatal("expected missing JWT_SECRET error")
+	}
+}
+
+// The claim timeout is the only knob that decides when an abandoned invoice claim
+// becomes recoverable, so a deployment that never sets it must still get a usable
+// value instead of zero (which would mean "reclaim immediately").
+func TestLoadConfigDefaultsTransactionClaimTimeout(t *testing.T) {
+	viper.Reset()
+	t.Chdir(t.TempDir())
+	t.Setenv("JWT_SECRET", "test-secret")
+	t.Setenv("INTERNAL_SERVICE_CREDENTIAL", "test-internal-credential")
+	t.Setenv("TRANSACTION_CLAIM_TIMEOUT_MINUTES", "")
+
+	config, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.TransactionClaimTimeoutMinutes != domain.DefaultTransactionClaimTimeoutMinutes {
+		t.Fatalf("claim timeout=%d, want the default %d", config.TransactionClaimTimeoutMinutes, domain.DefaultTransactionClaimTimeoutMinutes)
+	}
+}
+
+// An operator shortening the timeout for a slow gateway must be able to do it from the
+// environment alone, without a code change.
+func TestLoadConfigReadsTransactionClaimTimeoutFromEnvironment(t *testing.T) {
+	viper.Reset()
+	t.Chdir(t.TempDir())
+	t.Setenv("JWT_SECRET", "test-secret")
+	t.Setenv("INTERNAL_SERVICE_CREDENTIAL", "test-internal-credential")
+	t.Setenv("TRANSACTION_CLAIM_TIMEOUT_MINUTES", "25")
+
+	config, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.TransactionClaimTimeoutMinutes != 25 {
+		t.Fatalf("claim timeout=%d, want 25", config.TransactionClaimTimeoutMinutes)
 	}
 }

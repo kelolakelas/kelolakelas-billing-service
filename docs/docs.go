@@ -504,7 +504,13 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
+                "invoice_claimed_at": {
+                    "type": "string"
+                },
                 "invoice_expires_at": {
+                    "type": "string"
+                },
+                "invoice_failure_reason": {
                     "type": "string"
                 },
                 "merchant_order_id": {

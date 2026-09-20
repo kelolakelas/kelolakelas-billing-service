@@ -117,7 +117,9 @@ func TestMarkInvoiceIssuedRefusesToRewriteTheRowItDoesNotOwn(t *testing.T) {
 	expiresAt := time.Date(2026, time.September, 27, 10, 0, 0, 0, time.UTC)
 	mock.ExpectBegin()
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE \"transactions\"")).
-		WithArgs("https://pay.example.com/x", nil, expiresAt, "REF-X", domain.TransactionStatusPending, sqlmock.AnyArg(), id, domain.TransactionStatusCreating, domain.TransactionStatusPending).
+		// The write also clears the claim bookkeeping, because a row that has just been
+		// given a payment link is no longer being created and holds no failure reason.
+		WithArgs("https://pay.example.com/x", nil, nil, expiresAt, nil, "REF-X", domain.TransactionStatusPending, sqlmock.AnyArg(), id, domain.TransactionStatusCreating, domain.TransactionStatusPending).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectCommit()
 

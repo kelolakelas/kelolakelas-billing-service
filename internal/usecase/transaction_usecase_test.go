@@ -19,11 +19,22 @@ import (
 // Setting missing=true makes every lookup report gorm.ErrRecordNotFound so the
 // first-invoice path can be exercised.
 type transactionRepoStub struct {
-	transaction      *domain.Transaction
-	missing          bool
-	createCount      int
-	updateCount      int
-	claimCount       int
+	transaction *domain.Transaction
+	// periodTx backs the subscription-period lookup. A renewal whose period already has
+	// a transaction must be found, otherwise the worker would create a second row and the
+	// claim under test would never be taken.
+	periodTx    *domain.Transaction
+	missing     bool
+	createCount int
+	updateCount int
+	claimCount  int
+	// claimUnavailable forces both claim statements to report that no row matched, which
+	// models the database outcome when another request already owns the claim.
+	claimUnavailable bool
+	// restoreErr injects a failing claim release, which models a database that refuses the
+	// recovery write while the provider error is still on its way back to the caller.
+	restoreErr       error
+	restoreRuns      int
 	cancelUnpaidRuns int
 }
 
@@ -47,6 +58,9 @@ func (r *transactionRepoStub) GetByEnrollmentID(context.Context, uuid.UUID) (*do
 }
 
 func (r *transactionRepoStub) GetBySubscriptionPeriod(context.Context, uuid.UUID, time.Time) (*domain.Transaction, error) {
+	if r.periodTx != nil {
+		return r.periodTx, nil
+	}
 	return nil, gorm.ErrRecordNotFound
 }
 
@@ -67,27 +81,105 @@ func (r *transactionRepoStub) GetByIDForUpdate(context.Context, uuid.UUID) (*dom
 	return r.current()
 }
 
-func (r *transactionRepoStub) ClaimInvoice(context.Context, uuid.UUID) (bool, error) {
+// ClaimInvoice mirrors the SQL predicate of the real repository: a row is claimable
+// while it is still waiting for an invoice, or while it is `creating` with a claim
+// that already aged past the timeout. A `creating` row inside the timeout belongs to
+// whoever claimed it, and a row that already holds a payment link is never reclaimed
+// because a second invoice would duplicate the merchant order ID.
+func (r *transactionRepoStub) ClaimInvoice(_ context.Context, id uuid.UUID, now time.Time, claimTimeoutMinutes int) (bool, error) {
 	r.claimCount++
+	if r.claimUnavailable {
+		return false, nil
+	}
+	current, err := r.current()
+	if err != nil || current.ID != id {
+		return false, nil
+	}
+	if current.CheckoutSessionURL != nil && *current.CheckoutSessionURL != "" {
+		return false, nil
+	}
+	switch current.Status {
+	case domain.TransactionStatusPending, domain.TransactionStatusFailed:
+	case domain.TransactionStatusCreating:
+		if claimTimeoutMinutes <= 0 {
+			claimTimeoutMinutes = domain.DefaultTransactionClaimTimeoutMinutes
+		}
+		deadline := now.Add(-time.Duration(claimTimeoutMinutes) * time.Minute)
+		if current.InvoiceClaimedAt != nil && current.InvoiceClaimedAt.After(deadline) {
+			return false, nil
+		}
+	default:
+		return false, nil
+	}
+	current.Status = domain.TransactionStatusCreating
+	current.InvoiceClaimedAt = &now
+	current.InvoiceFailureReason = nil
+	return true, nil
+}
+
+// RestoreFailedInvoiceClaim mirrors the conditional update of the real repository: the
+// release only matches the `creating` row the caller still owns, so a late success or a
+// concurrent cancellation is never rewritten, and the failure reason is recorded for
+// the next attempt to clear.
+func (r *transactionRepoStub) RestoreFailedInvoiceClaim(_ context.Context, id uuid.UUID, reason string, now time.Time) (bool, error) {
+	if r.restoreErr != nil {
+		return false, r.restoreErr
+	}
+	current, err := r.current()
+	if err != nil || current.ID != id {
+		return false, nil
+	}
+	if current.Status != domain.TransactionStatusCreating {
+		return false, nil
+	}
+	if current.CheckoutSessionURL != nil && *current.CheckoutSessionURL != "" {
+		return false, nil
+	}
+	r.restoreRuns++
+	current.Status = domain.TransactionStatusFailed
+	current.InvoiceFailureReason = &reason
+	current.InvoiceClaimedAt = nil
+	_ = now
 	return true, nil
 }
 
 // ClaimReinvoice mirrors the SQL guard of the real repository: only unpaid rows
 // can be claimed for a replacement invoice, claiming moves the row to `creating`,
 // and the stale gateway references are cleared so the next invoice starts clean.
-func (r *transactionRepoStub) ClaimReinvoice(_ context.Context, _ uuid.UUID, _ time.Time) (bool, error) {
+// A row stranded in `creating` is claimable again once its claim ages past the
+// timeout, which is what keeps an abandoned replacement invoice recoverable.
+func (r *transactionRepoStub) ClaimReinvoice(_ context.Context, id uuid.UUID, now time.Time, claimTimeoutMinutes int) (bool, error) {
 	r.claimCount++
-	current, err := r.current()
-	if err != nil {
+	if r.claimUnavailable {
 		return false, nil
 	}
-	switch current.Status {
-	case domain.TransactionStatusPaid, "cancelled", "refunded":
+	current, err := r.current()
+	if err != nil || current.ID != id {
 		return false, nil
+	}
+	if current.CheckoutSessionURL != nil && *current.CheckoutSessionURL != "" {
+		// A live payment link is only reclaimable once it can no longer be paid, and the
+		// claim timestamp is irrelevant in that case.
+		if current.Status != domain.TransactionStatusExpired && (current.InvoiceExpiresAt == nil || current.InvoiceExpiresAt.After(now)) {
+			return false, nil
+		}
+	}
+	switch current.Status {
+	case domain.TransactionStatusPaid, domain.TransactionStatusCancelled, domain.TransactionStatusRefunded:
+		return false, nil
+	case domain.TransactionStatusCreating:
+		if claimTimeoutMinutes <= 0 {
+			claimTimeoutMinutes = domain.DefaultTransactionClaimTimeoutMinutes
+		}
+		if current.InvoiceClaimedAt != nil && current.InvoiceClaimedAt.After(now.Add(-time.Duration(claimTimeoutMinutes)*time.Minute)) {
+			return false, nil
+		}
 	}
 	current.Status = domain.TransactionStatusCreating
 	current.CheckoutSessionURL = nil
 	current.PaymentIntentID = nil
+	current.InvoiceClaimedAt = &now
+	current.InvoiceFailureReason = nil
 	return true, nil
 }
 
@@ -135,6 +227,8 @@ func (r *transactionRepoStub) MarkInvoiceIssued(_ context.Context, id uuid.UUID,
 	current.InvoiceExpiresAt = &expiresAt
 	current.CheckoutSessionURL = &checkoutSessionURL
 	current.PaymentIntentID = &paymentIntentID
+	current.InvoiceClaimedAt = nil
+	current.InvoiceFailureReason = nil
 	return true, nil
 }
 

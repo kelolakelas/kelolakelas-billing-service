@@ -24,6 +24,9 @@ type transactionUsecaseStub struct {
 	err            error
 	calls          int
 	lastEnrollment uuid.UUID
+	// lastQuery records the filter the list handler forwarded, so the tests can prove a
+	// status the API accepts is the status the domain search actually receives.
+	lastQuery domain.TransactionQuery
 }
 
 func (s *transactionUsecaseStub) CreateTransaction(context.Context, *domain.Transaction) error {
@@ -48,8 +51,9 @@ func (s *transactionUsecaseStub) HandleDuitkuWebhook(context.Context, *domain.Du
 	return nil
 }
 
-func (s *transactionUsecaseStub) List(context.Context, *uuid.UUID, *uuid.UUID, domain.TransactionQuery) (*domain.TransactionListResponse, error) {
-	return nil, nil
+func (s *transactionUsecaseStub) List(_ context.Context, _, _ *uuid.UUID, query domain.TransactionQuery) (*domain.TransactionListResponse, error) {
+	s.lastQuery = query
+	return &domain.TransactionListResponse{}, nil
 }
 
 func (s *transactionUsecaseStub) GetByIDScoped(context.Context, *uuid.UUID, *uuid.UUID, uuid.UUID) (*domain.TransactionResponse, error) {
