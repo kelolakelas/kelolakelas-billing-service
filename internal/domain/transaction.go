@@ -21,6 +21,13 @@ var (
 // payment recoverable by a replacement invoice, while `cancelled` is written only
 // when the parent withdraws an unpaid enrollment: no replacement invoice is ever
 // issued for it, and its seat release stays enqueued.
+//
+// `creating` is the transient claim that makes invoice creation exclusive: the row is
+// moved there before the provider is called, so a second request for the same
+// enrollment finds the row already owned and returns the in-flight invoice instead of
+// creating another one. A claim is always taken back — immediately when the provider
+// call fails, and after TransactionClaimTimeoutMinutes when the claiming process died
+// before it could report back — so the status is never a dead end.
 const (
 	TransactionStatusPending   = "pending"
 	TransactionStatusPaid      = "paid"
@@ -30,6 +37,35 @@ const (
 	TransactionStatusRefunded  = "refunded"
 	TransactionStatusCreating  = "creating"
 )
+
+// TransactionStatusFilterValues lists every status the transaction list endpoint
+// accepts as a filter. It is derived from the statuses the code actually writes, so a
+// caller can always filter on the value it observes in a response instead of having to
+// know which ones are considered listable.
+func TransactionStatusFilterValues() []string {
+	return []string{
+		TransactionStatusPending,
+		TransactionStatusPaid,
+		TransactionStatusFailed,
+		TransactionStatusExpired,
+		TransactionStatusCancelled,
+		TransactionStatusRefunded,
+		TransactionStatusCreating,
+	}
+}
+
+// IsTransactionStatusFilterValue reports whether a status filter is one the service
+// recognises. The comparison is exact: a filter is either a status the code writes or
+// it is rejected, so an unknown value never silently returns an empty page that looks
+// like "no transactions".
+func IsTransactionStatusFilterValue(status string) bool {
+	for _, candidate := range TransactionStatusFilterValues() {
+		if status == candidate {
+			return true
+		}
+	}
+	return false
+}
 
 // Duitku callback result codes. `00` is a successful payment, `01`/`02` are
 // failures, and any other value is unknown and must not change local state.
@@ -43,6 +79,13 @@ const (
 // payment gateway when no explicit period is configured (24 hours). It matches
 // the Duitku adapter default so the stored expiry mirrors the requested one.
 const DefaultInvoiceValidityMinutes = 1440
+
+// DefaultTransactionClaimTimeoutMinutes is how long an invoice claim may stay
+// unowned before it is treated as abandoned (10 minutes). It has to be comfortably
+// longer than a normal provider round trip — the claim is only released early when
+// the creating request reports its own failure — so the default only ever recovers
+// claims whose process died without reporting back.
+const DefaultTransactionClaimTimeoutMinutes = 10
 
 // InvoiceExpiresAt returns the local expiry deadline for an invoice requested
 // with the given validity in minutes. A non-positive value falls back to
@@ -96,6 +139,8 @@ type Transaction struct {
 	ReminderCount          int            `gorm:"type:int;not null;default:0" json:"reminder_count"`
 	InvoiceExpiresAt       *time.Time     `gorm:"type:timestamp;index" json:"invoice_expires_at,omitempty"`
 	ExpiredAt              *time.Time     `gorm:"type:timestamp" json:"expired_at,omitempty"`
+	InvoiceClaimedAt       *time.Time     `gorm:"type:timestamp;index" json:"invoice_claimed_at,omitempty"`
+	InvoiceFailureReason   *string        `gorm:"type:text" json:"invoice_failure_reason,omitempty"`
 	PaidAt                 *time.Time     `gorm:"type:timestamp" json:"paid_at,omitempty"`
 	CreatedAt              time.Time      `gorm:"type:timestamp;not null;default:now()" json:"created_at"`
 	UpdatedAt              time.Time      `gorm:"type:timestamp;not null;default:now()" json:"updated_at"`
@@ -159,6 +204,8 @@ type TransactionResponse struct {
 	CheckoutSessionURL          string     `json:"checkout_session_url,omitempty"`
 	InvoiceExpiresAt            *time.Time `json:"invoice_expires_at,omitempty"`
 	ExpiredAt                   *time.Time `json:"expired_at,omitempty"`
+	InvoiceClaimedAt            *time.Time `json:"invoice_claimed_at,omitempty"`
+	InvoiceFailureReason        string     `json:"invoice_failure_reason,omitempty"`
 	PaidAt                      *time.Time `json:"paid_at,omitempty"`
 	CreatedAt                   time.Time  `json:"created_at"`
 	UpdatedAt                   time.Time  `json:"updated_at"`

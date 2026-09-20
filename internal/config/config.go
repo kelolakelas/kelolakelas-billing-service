@@ -9,6 +9,8 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/spf13/viper"
+
+	"github.com/kelolakelas/kelolakelas-billing-service/internal/domain"
 )
 
 type Config struct {
@@ -38,8 +40,13 @@ type Config struct {
 	PaymentReconciliationMaxAttempts           int    `mapstructure:"PAYMENT_RECONCILIATION_MAX_ATTEMPTS"`
 	TransactionExpiryWorkerEnabled             bool   `mapstructure:"TRANSACTION_EXPIRY_WORKER_ENABLED"`
 	TransactionExpiryWorkerIntervalMinutes     int    `mapstructure:"TRANSACTION_EXPIRY_WORKER_INTERVAL_MINUTES"`
-	ResendAPIKey                               string `mapstructure:"RESEND_API_KEY"`
-	ResendFromEmail                            string `mapstructure:"RESEND_FROM_EMAIL"`
+	// TransactionClaimTimeoutMinutes is how long a transaction may stay in `creating`
+	// before another request is allowed to take the invoice creation over. It is the
+	// safety net for claims abandoned by a process that died mid-call; a claim that
+	// fails while its caller is alive is released immediately instead of waiting.
+	TransactionClaimTimeoutMinutes int    `mapstructure:"TRANSACTION_CLAIM_TIMEOUT_MINUTES"`
+	ResendAPIKey                   string `mapstructure:"RESEND_API_KEY"`
+	ResendFromEmail                string `mapstructure:"RESEND_FROM_EMAIL"`
 }
 
 func LoadConfig() (Config, error) {
@@ -60,7 +67,7 @@ func LoadConfig() (Config, error) {
 		"DATABASE_URL", "DB_HOST", "DB_PORT", "DB_SSLMODE", "DB_CHANNEL_BINDING", "DB_USER", "DB_PASSWORD", "DB_NAME",
 		"PORT", "DUITKU_API_BASE_URL", "DUITKU_API_KEY", "DUITKU_MERCHANT_CODE",
 		"DUITKU_CALLBACK_URL", "DUITKU_RETURN_URL", "ACADEMIC_SERVICE_URL", "INTERNAL_SERVICE_CREDENTIAL", "JWT_SECRET",
-		"SUBSCRIPTION_WORKER_ENABLED", "SUBSCRIPTION_WORKER_INTERVAL_MINUTES", "SUBSCRIPTION_PAYMENT_REMINDER_INTERVAL_DAYS", "SUBSCRIPTION_PAYMENT_EXPIRY_PERIOD_DAYS", "PAYMENT_RECONCILIATION_WORKER_ENABLED", "PAYMENT_RECONCILIATION_WORKER_INTERVAL_MINUTES", "PAYMENT_RECONCILIATION_MAX_ATTEMPTS", "TRANSACTION_EXPIRY_WORKER_ENABLED", "TRANSACTION_EXPIRY_WORKER_INTERVAL_MINUTES", "RESEND_API_KEY", "RESEND_FROM_EMAIL",
+		"SUBSCRIPTION_WORKER_ENABLED", "SUBSCRIPTION_WORKER_INTERVAL_MINUTES", "SUBSCRIPTION_PAYMENT_REMINDER_INTERVAL_DAYS", "SUBSCRIPTION_PAYMENT_EXPIRY_PERIOD_DAYS", "PAYMENT_RECONCILIATION_WORKER_ENABLED", "PAYMENT_RECONCILIATION_WORKER_INTERVAL_MINUTES", "PAYMENT_RECONCILIATION_MAX_ATTEMPTS", "TRANSACTION_EXPIRY_WORKER_ENABLED", "TRANSACTION_EXPIRY_WORKER_INTERVAL_MINUTES", "TRANSACTION_CLAIM_TIMEOUT_MINUTES", "RESEND_API_KEY", "RESEND_FROM_EMAIL",
 	} {
 		if err := viper.BindEnv(key); err != nil {
 			return Config{}, err
@@ -125,6 +132,9 @@ func LoadConfig() (Config, error) {
 	}
 	if config.TransactionExpiryWorkerIntervalMinutes == 0 {
 		config.TransactionExpiryWorkerIntervalMinutes = 5
+	}
+	if config.TransactionClaimTimeoutMinutes == 0 {
+		config.TransactionClaimTimeoutMinutes = domain.DefaultTransactionClaimTimeoutMinutes
 	}
 	if config.DuitkuAPIBaseURL == "" {
 		config.DuitkuAPIBaseURL = "https://sandbox.duitku.com/webapi/api/merchant"
