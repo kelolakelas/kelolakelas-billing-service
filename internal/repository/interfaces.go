@@ -62,6 +62,13 @@ type TransactionLockingRepository interface {
 	ClaimReinvoice(ctx context.Context, id uuid.UUID, now time.Time) (bool, error)
 	ClaimPaymentLinkEmail(ctx context.Context, id uuid.UUID, sentAt time.Time) (bool, error)
 	ClaimReminderEmail(ctx context.Context, id uuid.UUID, sentAt time.Time, intervalDays int) (bool, error)
+	// CancelUnpaid marks the unpaid transactions of a withdrawn enrollment as
+	// cancelled, and MarkInvoiceIssued stores a freshly created payment link only
+	// while the transaction is still awaiting one. Both are conditional updates so
+	// a cancellation and an in-flight invoice creation can never resurrect each
+	// other: whichever statement runs second matches no row and reports false.
+	CancelUnpaid(ctx context.Context, id uuid.UUID) (bool, error)
+	MarkInvoiceIssued(ctx context.Context, id uuid.UUID, checkoutSessionURL, paymentIntentID string, expiresAt time.Time) (bool, error)
 }
 
 // TransactionExpiryRepository expires unpaid transactions whose invoice validity

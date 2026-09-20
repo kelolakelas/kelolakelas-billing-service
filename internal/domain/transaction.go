@@ -17,12 +17,18 @@ var (
 
 // Transaction status values. `expired` is terminal for unpaid invoices: a later
 // paid callback is still accepted by the billing service and moves the row to
-// `paid` so a genuine late payment is never lost.
+// `paid` so a genuine late payment is never lost. `failed` and `expired` keep the
+// payment recoverable by a replacement invoice, while `cancelled` is written only
+// when the parent withdraws an unpaid enrollment: no replacement invoice is ever
+// issued for it, and its seat release stays enqueued.
 const (
-	TransactionStatusPending = "pending"
-	TransactionStatusPaid    = "paid"
-	TransactionStatusFailed  = "failed"
-	TransactionStatusExpired = "expired"
+	TransactionStatusPending   = "pending"
+	TransactionStatusPaid      = "paid"
+	TransactionStatusFailed    = "failed"
+	TransactionStatusExpired   = "expired"
+	TransactionStatusCancelled = "cancelled"
+	TransactionStatusRefunded  = "refunded"
+	TransactionStatusCreating  = "creating"
 )
 
 // Duitku callback result codes. `00` is a successful payment, `01`/`02` are
@@ -97,6 +103,13 @@ type Transaction struct {
 
 	Voucher        *Voucher               `gorm:"foreignKey:VoucherID" json:"voucher,omitempty"`
 	Reconciliation *PaymentReconciliation `gorm:"foreignKey:TransactionID" json:"reconciliation,omitempty"`
+}
+
+// CancelEnrollmentPaymentRequest asks the billing service to mark the unpaid
+// transaction of an enrollment as cancelled. The enrollment is the stable key the
+// academic service holds, so the request never has to know a transaction ID.
+type CancelEnrollmentPaymentRequest struct {
+	EnrollmentID uuid.UUID `json:"enrollment_id" binding:"required"`
 }
 
 type GenerateSubscriptionPaymentRequest struct {

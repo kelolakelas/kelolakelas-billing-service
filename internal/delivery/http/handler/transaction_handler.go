@@ -140,6 +140,40 @@ func (h *TransactionHandler) Get(c *gin.Context) {
 	c.JSON(200, gin.H{"status": "success", "message": "Transaction fetched successfully", "data": result})
 }
 
+// CancelInternalEnrollmentPayment godoc
+// @Summary Cancel the unpaid transaction of a cancelled enrollment
+// @Description Internal service-to-service endpoint that marks the unpaid transaction of an enrollment as `cancelled`. The transition is idempotent, never rewrites a paid or refunded transaction, and reports 404 when the enrollment has no transaction at all.
+// @Tags Billing
+// @Accept json
+// @Produce json
+// @Param request body domain.CancelEnrollmentPaymentRequest true "Enrollment to cancel"
+// @Success 200 {object} domain.HTTPResponse{data=domain.TransactionResponse}
+// @Failure 400 {object} domain.ErrorResponse
+// @Failure 404 {object} domain.ErrorResponse
+// @Failure 409 {object} domain.ErrorResponse
+// @Failure 500 {object} domain.ErrorResponse
+// @Router /internal/billing/transactions/cancel [post]
+func (h *TransactionHandler) CancelInternalEnrollmentPayment(c *gin.Context) {
+	var req domain.CancelEnrollmentPaymentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Invalid cancellation request", "data": nil})
+		return
+	}
+	result, err := h.txUsecase.CancelEnrollmentPayment(c.Request.Context(), req.EnrollmentID)
+	if err != nil {
+		switch {
+		case errors.Is(err, domain.ErrTransactionNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"status": "error", "message": "Transaction not found", "data": nil})
+		case errors.Is(err, domain.ErrInvalidTransactionStatus):
+			c.JSON(http.StatusConflict, gin.H{"status": "error", "message": "Transaction can no longer be cancelled", "data": nil})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": err.Error(), "data": nil})
+		}
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "success", "message": "Transaction cancelled successfully", "data": result})
+}
+
 func NewTransactionHandler(txUsecase usecase.TransactionUsecase, paymentGateway domain.PaymentGateway) *TransactionHandler {
 	return &TransactionHandler{
 		txUsecase: txUsecase, paymentGateway: paymentGateway,

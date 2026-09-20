@@ -100,6 +100,7 @@ func main() {
 	internal := r.Group("/internal/billing")
 	internal.Use(middleware.InternalServiceAuth(cfg.InternalServiceCredential))
 	internal.POST("/transactions", txHandler.GenerateInternalSubscriptionPayment)
+	internal.POST("/transactions/cancel", txHandler.CancelInternalEnrollmentPayment)
 
 	server := &http.Server{Addr: "0.0.0.0:" + cfg.Port, Handler: r}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
