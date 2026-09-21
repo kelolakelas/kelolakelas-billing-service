@@ -13,6 +13,7 @@ migrate-down:
 	go run ./cmd/migrate -direction down -steps 1
 
 seed:
+	@test -d seeders || (echo "no seeders/ directory: create one first with 'make create-seeder name=<seeder>'" >&2; exit 1)
 	go run ./cmd/seed -dir seeders
 
 create-migration:
