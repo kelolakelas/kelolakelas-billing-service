@@ -148,3 +148,77 @@ func TestCancelUnpaidPropagatesRepositoryErrors(t *testing.T) {
 		t.Fatal("CancelUnpaid swallowed a repository error")
 	}
 }
+
+// The seat release a withdrawal enqueues goes through a batch statement, so the transition
+// log has to be driven by what that statement inserted. A skipped insert means the
+// transaction already owed Academic something and nothing changed, and reporting it as a
+// transition would announce a seat release that never happened.
+func TestCancelUnpaidLogsOnlyTheReleaseJobItInserted(t *testing.T) {
+	transactionID, enrollmentID := uuid.New(), uuid.New()
+	repo, mock, cleanup := newTransactionMock(t)
+	defer cleanup()
+
+	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO payment_reconciliations")).
+		WithArgs(
+			domain.TransactionStatusCancelled, sqlmock.AnyArg(),
+			transactionID,
+			domain.TransactionStatusPending, domain.TransactionStatusCreating,
+			domain.TransactionStatusFailed, domain.TransactionStatusExpired,
+			domain.ReconciliationKindRelease, domain.ReconciliationStatusPending,
+			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
+			uuid.Nil,
+		).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "enrollment_id", "released"}).
+			AddRow(transactionID, enrollmentID, true))
+
+	records := captureLogs(t, func() {
+		cancelled, err := repo.CancelUnpaid(context.Background(), transactionID)
+		if err != nil {
+			t.Fatalf("CancelUnpaid error: %v", err)
+		}
+		if !cancelled {
+			t.Fatal("CancelUnpaid reported false while the row was updated")
+		}
+	})
+
+	if len(records) != 1 {
+		t.Fatalf("records=%d, want one transition line for the inserted release job", len(records))
+	}
+	if records[0]["transaction_id"] != transactionID.String() || records[0]["enrollment_id"] != enrollmentID.String() {
+		t.Fatalf("record=%v, want the cancelled transaction and its enrollment", records[0])
+	}
+	if records[0]["kind"] != domain.ReconciliationKindRelease || records[0]["status"] != domain.ReconciliationStatusPending {
+		t.Fatalf("record=%v, want a pending release transition", records[0])
+	}
+}
+
+// A withdrawal that inserted no release job stayed silent, because the transaction already
+// owed Academic an activation or a release and its evidence must not be replaced.
+func TestCancelUnpaidStaysSilentWhenTheReleaseJobWasSkipped(t *testing.T) {
+	transactionID := uuid.New()
+	repo, mock, cleanup := newTransactionMock(t)
+	defer cleanup()
+
+	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO payment_reconciliations")).
+		WithArgs(
+			domain.TransactionStatusCancelled, sqlmock.AnyArg(),
+			transactionID,
+			domain.TransactionStatusPending, domain.TransactionStatusCreating,
+			domain.TransactionStatusFailed, domain.TransactionStatusExpired,
+			domain.ReconciliationKindRelease, domain.ReconciliationStatusPending,
+			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
+			uuid.Nil,
+		).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "enrollment_id", "released"}).
+			AddRow(transactionID, uuid.New(), false))
+
+	records := captureLogs(t, func() {
+		if _, err := repo.CancelUnpaid(context.Background(), transactionID); err != nil {
+			t.Fatalf("CancelUnpaid error: %v", err)
+		}
+	})
+
+	if len(records) != 0 {
+		t.Fatalf("records=%v, want no transition log for a skipped insert", records)
+	}
+}

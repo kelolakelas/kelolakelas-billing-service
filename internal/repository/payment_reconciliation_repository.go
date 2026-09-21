@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,17 +14,45 @@ import (
 
 type paymentReconciliationRepository struct{ db *gorm.DB }
 
-func NewPaymentReconciliationRepository(db *gorm.DB) PaymentReconciliationRepository {
+func NewPaymentReconciliationRepository(db *gorm.DB) *paymentReconciliationRepository {
 	return &paymentReconciliationRepository{db: db}
+}
+
+// logReconciliationTransition records a persisted state change on a reconciliation
+// row. Every transition is written here, next to the statement that actually changed
+// the row, because this is the only layer that knows the real stored outcome: a
+// conditional update that matched no row or an insert skipped by ON CONFLICT is not a
+// transition and must not be logged as one. The transaction and enrollment ids are the
+// correlation keys an operator has from the parent-visible response, and the failure
+// detail is the same redacted message the API already returns — no credential or
+// provider payload is added.
+func logReconciliationTransition(ctx context.Context, level slog.Level, message string, reconciliation *domain.PaymentReconciliation, status string, attrs ...any) {
+	if reconciliation == nil {
+		return
+	}
+	args := []any{
+		"transaction_id", reconciliation.TransactionID,
+		"enrollment_id", reconciliation.EnrollmentID,
+		"kind", reconciliation.Kind,
+		"status", status,
+		"attempt_count", reconciliation.AttemptCount,
+	}
+	args = append(args, attrs...)
+	slog.Log(ctx, level, message, args...)
 }
 
 // EnsureActivation records that a paid transaction still owes Academic an
 // activation. A row that already completed an activation is left untouched, while
 // a row that was turned into a release job is converted back: the seat may already
 // be gone, so the attempt must stay visible instead of being swallowed.
+//
+// Only a row this statement actually inserted or converted is logged: the WHERE on
+// the conflict update deliberately skips a row whose activation already succeeded, and
+// that skip is not a transition. A replay of the paid callback therefore does not
+// produce a second "pending" line for a job that is already done.
 func (r *paymentReconciliationRepository) EnsureActivation(ctx context.Context, reconciliation *domain.PaymentReconciliation) error {
 	db := GetDB(ctx, r.db)
-	return db.Clauses(clause.OnConflict{
+	result := db.Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "transaction_id"}},
 		DoUpdates: clause.Assignments(map[string]interface{}{
 			"kind":            reconciliation.Kind,
@@ -37,7 +66,14 @@ func (r *paymentReconciliationRepository) EnsureActivation(ctx context.Context, 
 				clause.Neq{Column: clause.Column{Table: "payment_reconciliations", Name: "status"}, Value: domain.ReconciliationStatusActive},
 			),
 		}},
-	}).Create(reconciliation).Error
+	}).Create(reconciliation)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected > 0 {
+		logReconciliationTransition(ctx, slog.LevelInfo, "enqueued enrollment reconciliation", reconciliation, domain.ReconciliationStatusPending)
+	}
+	return nil
 }
 
 // EnqueueRelease records that a failed or expired transaction must release its
@@ -45,9 +81,19 @@ func (r *paymentReconciliationRepository) EnsureActivation(ctx context.Context, 
 // activation — are never overwritten here, because a failure notification must not
 // revoke a seat the activation just confirmed. Expiry calls this only after the row
 // is already `expired`, which is precisely the state that owes a release.
+//
+// A conflict means the transaction already owes Academic something else; nothing was
+// written, so nothing is logged as a new transition.
 func (r *paymentReconciliationRepository) EnqueueRelease(ctx context.Context, reconciliation *domain.PaymentReconciliation) error {
 	db := GetDB(ctx, r.db)
-	return db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "transaction_id"}}, DoNothing: true}).Create(reconciliation).Error
+	result := db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "transaction_id"}}, DoNothing: true}).Create(reconciliation)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected > 0 {
+		logReconciliationTransition(ctx, slog.LevelInfo, "enqueued enrollment seat release", reconciliation, domain.ReconciliationStatusPending)
+	}
+	return nil
 }
 
 // CancelPendingRelease withdraws a release job that has not been claimed yet, which
@@ -106,22 +152,43 @@ func (r *paymentReconciliationRepository) ClaimDue(ctx context.Context, transact
 	reconciliation.Status = domain.ReconciliationStatusProcessing
 	reconciliation.AttemptCount++
 	reconciliation.LastAttemptAt = &now
+	logReconciliationTransition(ctx, slog.LevelInfo, "claimed reconciliation attempt", &reconciliation, domain.ReconciliationStatusProcessing)
 	return &reconciliation, nil
 }
 
+// MarkActive records that Academic acknowledged the job. A row this statement did not
+// change is not a transition, so a repeated confirmation cannot log a second
+// completion for the same job. The read is best-effort: it exists only to carry the
+// correlation ids into the log line, and the update keeps its original contract of
+// succeeding even when no row matches.
 func (r *paymentReconciliationRepository) MarkActive(ctx context.Context, id uuid.UUID, completedAt time.Time) error {
-	return GetDB(ctx, r.db).Model(&domain.PaymentReconciliation{}).Where("id = ?", id).Updates(map[string]interface{}{
+	var current domain.PaymentReconciliation
+	_ = GetDB(ctx, r.db).First(&current, "id = ?", id).Error
+	result := GetDB(ctx, r.db).Model(&domain.PaymentReconciliation{}).Where("id = ?", id).Updates(map[string]interface{}{
 		"status":          domain.ReconciliationStatusActive,
 		"completed_at":    completedAt,
 		"next_attempt_at": nil,
 		"last_error":      nil,
-	}).Error
+	})
+	if result.Error != nil {
+		return result.Error
+	}
+	current.ID = id
+	current.Status = domain.ReconciliationStatusActive
+	current.LastError = nil
+	logReconciliationTransition(ctx, slog.LevelInfo, "completed enrollment reconciliation", &current, domain.ReconciliationStatusActive, "completed_at", completedAt)
+	return nil
 }
 
+// MarkRetry records the outcome of a failed attempt. The attempt count the statement is
+// compared against is the one ClaimDue already incremented, so the row is read first;
+// that same read supplies the correlation ids for the log line. When no attempt limit is
+// configured the read is best-effort, because the original contract updated the row
+// without requiring it to exist and that behaviour is preserved.
 func (r *paymentReconciliationRepository) MarkRetry(ctx context.Context, id uuid.UUID, nextAttemptAt time.Time, lastError string, maxAttempts int) error {
 	status := domain.ReconciliationStatusPending
+	var current domain.PaymentReconciliation
 	if maxAttempts > 0 {
-		var current domain.PaymentReconciliation
 		if err := GetDB(ctx, r.db).First(&current, "id = ?", id).Error; err != nil {
 			return err
 		}
@@ -129,14 +196,80 @@ func (r *paymentReconciliationRepository) MarkRetry(ctx context.Context, id uuid
 			status = domain.ReconciliationStatusTerminalFailed
 			nextAttemptAt = time.Time{}
 		}
+	} else {
+		_ = GetDB(ctx, r.db).First(&current, "id = ?", id).Error
 	}
 	var nextAttempt interface{} = nextAttemptAt
 	if nextAttemptAt.IsZero() {
 		nextAttempt = nil
 	}
-	return GetDB(ctx, r.db).Model(&domain.PaymentReconciliation{}).Where("id = ?", id).Updates(map[string]interface{}{
+	result := GetDB(ctx, r.db).Model(&domain.PaymentReconciliation{}).Where("id = ?", id).Updates(map[string]interface{}{
 		"status":          status,
 		"next_attempt_at": nextAttempt,
 		"last_error":      lastError,
-	}).Error
+	})
+	if result.Error != nil {
+		return result.Error
+	}
+	current.ID = id
+	current.Status = status
+	current.LastError = &lastError
+	if status == domain.ReconciliationStatusTerminalFailed {
+		// Operator-visible by design: a job that will never be retried again is exactly
+		// what the reconciliation list endpoint exists to find.
+		logReconciliationTransition(ctx, slog.LevelError, "enrollment reconciliation reached the attempt limit", &current, status, "error", lastError, "max_attempts", maxAttempts)
+	} else {
+		logReconciliationTransition(ctx, slog.LevelWarn, "enrollment reconciliation retry scheduled", &current, status, "error", lastError, "next_attempt_at", nextAttemptAt)
+	}
+	return nil
+}
+
+const reconciliationListLimit = 200
+
+// ListByStatus returns the reconciliation rows an operator asked for, newest first so a
+// freshly failed job is the first thing on the page. `status` is validated by the caller
+// against the domain set, and an empty status lists every row.
+func (r *paymentReconciliationRepository) ListByStatus(ctx context.Context, status string, limit int) ([]domain.PaymentReconciliation, error) {
+	if limit <= 0 || limit > reconciliationListLimit {
+		limit = reconciliationListLimit
+	}
+	var reconciliations []domain.PaymentReconciliation
+	query := GetDB(ctx, r.db).Order("created_at DESC").Limit(limit)
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+	if err := query.Find(&reconciliations).Error; err != nil {
+		return nil, err
+	}
+	return reconciliations, nil
+}
+
+// RequeueTerminalFailed re-drives jobs that ran out of attempts. The status guard is the
+// whole contract: only a `terminal_failed` row is moved back to `pending`, so replaying
+// this call cannot reset a job that is already pending, in flight, or completed, and the
+// attempt count is preserved so the configured limit still bounds the next round. The
+// pending timestamp is set to the supplied instant rather than cleared, so the job is due
+// immediately instead of waiting on the lease sweep.
+func (r *paymentReconciliationRepository) RequeueTerminalFailed(ctx context.Context, now time.Time, limit int) (int64, error) {
+	if limit <= 0 {
+		return 0, nil
+	}
+	result := GetDB(ctx, r.db).Model(&domain.PaymentReconciliation{}).
+		Where("id IN (?)", GetDB(ctx, r.db).Model(&domain.PaymentReconciliation{}).
+			Select("id").
+			Where("status = ?", domain.ReconciliationStatusTerminalFailed).
+			Order("created_at ASC").
+			Limit(limit)).
+		Updates(map[string]interface{}{
+			"status":          domain.ReconciliationStatusPending,
+			"next_attempt_at": now,
+			"updated_at":      now,
+		})
+	if result.Error != nil {
+		return 0, result.Error
+	}
+	if result.RowsAffected > 0 {
+		slog.InfoContext(ctx, "requeued terminal reconciliation jobs", "count", result.RowsAffected)
+	}
+	return result.RowsAffected, nil
 }

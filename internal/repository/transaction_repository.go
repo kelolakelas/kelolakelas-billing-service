@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,6 +14,15 @@ import (
 
 type transactionRepository struct {
 	db *gorm.DB
+}
+
+// expiredTransactionRelease is one row of the ExpireDue result: the expired transaction,
+// its enrollment, and whether this statement is the one that inserted its release job.
+// The flag is what keeps the transition log honest when ON CONFLICT skips the insert.
+type expiredTransactionRelease struct {
+	ID           uuid.UUID `gorm:"column:id"`
+	EnrollmentID uuid.UUID `gorm:"column:enrollment_id"`
+	Released     bool      `gorm:"column:released"`
 }
 
 func NewTransactionRepository(db *gorm.DB) TransactionRepository {
@@ -215,11 +225,17 @@ func (r *transactionRepository) ClaimReinvoice(ctx context.Context, id uuid.UUID
 // activation is still owed keeps that job, and a transaction that already activated
 // keeps its accepted activation. The statement returns one row per expired
 // transaction — not per inserted job — so callers can drain a backlog in batches.
+//
+// The `released` CTE is joined to the returned rows so each inserted release job can be
+// logged with its transaction and enrollment. The join is a left join on purpose: a
+// transaction whose activation already owns the unique transaction_id inserted nothing,
+// and reporting that skip as a transition would announce a seat release that never
+// happened.
 func (r *transactionRepository) ExpireDue(ctx context.Context, now time.Time, limit int) (int64, error) {
 	if limit <= 0 {
 		return 0, nil
 	}
-	var expiredIDs []uuid.UUID
+	var expired []expiredTransactionRelease
 	err := r.getDB(ctx).Raw(`
 		WITH due AS (
 			SELECT id FROM transactions
@@ -241,15 +257,28 @@ func (r *transactionRepository) ExpireDue(ctx context.Context, now time.Time, li
 			ON CONFLICT (transaction_id) DO NOTHING
 			RETURNING transaction_id
 		)
-		SELECT id FROM expired`,
+		SELECT expired.id, expired.enrollment_id, released.transaction_id IS NOT NULL AS released
+		FROM expired
+		LEFT JOIN released ON released.transaction_id = expired.id`,
 		domain.TransactionStatusPending, now, limit,
 		domain.TransactionStatusExpired, now, now, domain.TransactionStatusPending,
 		domain.ReconciliationKindRelease, domain.ReconciliationStatusPending, now, now, now,
-		uuid.Nil).Scan(&expiredIDs).Error
+		uuid.Nil).Scan(&expired).Error
 	if err != nil {
 		return 0, err
 	}
-	return int64(len(expiredIDs)), nil
+	for i := range expired {
+		if !expired[i].Released {
+			continue
+		}
+		logReconciliationTransition(ctx, slog.LevelInfo, "enqueued enrollment seat release", &domain.PaymentReconciliation{
+			TransactionID: expired[i].ID,
+			EnrollmentID:  expired[i].EnrollmentID,
+			Kind:          domain.ReconciliationKindRelease,
+			Status:        domain.ReconciliationStatusPending,
+		}, domain.ReconciliationStatusPending)
+	}
+	return int64(len(expired)), nil
 }
 
 // CancelUnpaid marks the unpaid transactions of a withdrawn enrollment as
@@ -263,9 +292,13 @@ func (r *transactionRepository) ExpireDue(ctx context.Context, now time.Time, li
 // inserted with ON CONFLICT DO NOTHING, so a release already accepted or already
 // claimed is left untouched: the seat really is free in that case, and the Academic
 // cancellation is what makes the state consistent, not a second job.
+//
+// Like ExpireDue, the statement returns the inserted release job alongside the cancelled
+// transaction so the enqueue is logged with both ids, and a release job that lost the
+// unique-index race is reported as skipped rather than as a new transition.
 func (r *transactionRepository) CancelUnpaid(ctx context.Context, id uuid.UUID) (bool, error) {
 	now := time.Now()
-	var cancelled []uuid.UUID
+	var cancelled []expiredTransactionRelease
 	err := r.getDB(ctx).Raw(`
 		WITH target AS (
 			UPDATE transactions
@@ -281,7 +314,9 @@ func (r *transactionRepository) CancelUnpaid(ctx context.Context, id uuid.UUID) 
 			ON CONFLICT (transaction_id) DO NOTHING
 			RETURNING transaction_id
 		)
-		SELECT id FROM target`,
+		SELECT target.id, target.enrollment_id, released.transaction_id IS NOT NULL AS released
+		FROM target
+		LEFT JOIN released ON released.transaction_id = target.id`,
 		domain.TransactionStatusCancelled, now,
 		id,
 		domain.TransactionStatusPending, domain.TransactionStatusCreating, domain.TransactionStatusFailed, domain.TransactionStatusExpired,
@@ -289,6 +324,17 @@ func (r *transactionRepository) CancelUnpaid(ctx context.Context, id uuid.UUID) 
 		uuid.Nil).Scan(&cancelled).Error
 	if err != nil {
 		return false, err
+	}
+	for i := range cancelled {
+		if !cancelled[i].Released {
+			continue
+		}
+		logReconciliationTransition(ctx, slog.LevelInfo, "enqueued enrollment seat release", &domain.PaymentReconciliation{
+			TransactionID: cancelled[i].ID,
+			EnrollmentID:  cancelled[i].EnrollmentID,
+			Kind:          domain.ReconciliationKindRelease,
+			Status:        domain.ReconciliationStatusPending,
+		}, domain.ReconciliationStatusPending)
 	}
 	return len(cancelled) > 0, nil
 }
