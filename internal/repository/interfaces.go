@@ -103,6 +103,8 @@ type PaymentReconciliationRepository interface {
 	ClaimDue(ctx context.Context, transactionID uuid.UUID, now time.Time, lease time.Duration) (*domain.PaymentReconciliation, error)
 	MarkActive(ctx context.Context, id uuid.UUID, completedAt time.Time) error
 	MarkRetry(ctx context.Context, id uuid.UUID, nextAttemptAt time.Time, lastError string, maxAttempts int) error
+	ListByStatus(ctx context.Context, status string, limit int) ([]domain.PaymentReconciliation, error)
+	RequeueTerminalFailed(ctx context.Context, now time.Time, limit int) (int64, error)
 }
 
 type BillingTransactionManager interface {

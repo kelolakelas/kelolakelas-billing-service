@@ -63,6 +63,17 @@ func (r *reconciliationRepoStub) MarkRetry(_ context.Context, _ uuid.UUID, _ tim
 	return nil
 }
 
+// ListByStatus and RequeueTerminalFailed exist so the stub keeps satisfying the
+// repository interface the worker shares with the operator endpoint. They are unused by
+// these tests; the reconciliation admin usecase has its own stub.
+func (r *reconciliationRepoStub) ListByStatus(context.Context, string, int) ([]domain.PaymentReconciliation, error) {
+	return nil, nil
+}
+
+func (r *reconciliationRepoStub) RequeueTerminalFailed(context.Context, time.Time, int) (int64, error) {
+	return 0, nil
+}
+
 type academicActivationStub struct {
 	err          error
 	releaseErr   error

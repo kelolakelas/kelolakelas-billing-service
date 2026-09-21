@@ -46,7 +46,9 @@ func TestExpireDueEnqueuesReleaseJobForExpiredTransactions(t *testing.T) {
 			domain.ReconciliationKindRelease, domain.ReconciliationStatusPending, now, now, now,
 			uuid.Nil,
 		).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(firstID).AddRow(secondID))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "enrollment_id", "released"}).
+			AddRow(firstID, uuid.New(), true).
+			AddRow(secondID, uuid.New(), true))
 
 	count, err := repo.ExpireDue(context.Background(), now, 50)
 	if err != nil {
@@ -54,6 +56,36 @@ func TestExpireDueEnqueuesReleaseJobForExpiredTransactions(t *testing.T) {
 	}
 	if count != 2 {
 		t.Fatalf("ExpireDue count = %d, want 2", count)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet SQL expectations: %v", err)
+	}
+}
+
+// The count is the number of expired transactions, not the number of inserted release
+// jobs: a transaction whose activation already owns the unique transaction_id keeps it and
+// inserts nothing, and the worker's drain loop must still see that transaction as expired.
+func TestExpireDueCountsSkippedReleaseJobsAsExpired(t *testing.T) {
+	now := time.Date(2026, time.September, 20, 10, 0, 0, 0, time.UTC)
+	repo, mock, cleanup := newTransactionMock(t)
+	defer cleanup()
+
+	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO payment_reconciliations")).
+		WithArgs(
+			domain.TransactionStatusPending, now, 50,
+			domain.TransactionStatusExpired, now, now, domain.TransactionStatusPending,
+			domain.ReconciliationKindRelease, domain.ReconciliationStatusPending, now, now, now,
+			uuid.Nil,
+		).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "enrollment_id", "released"}).
+			AddRow(uuid.New(), uuid.New(), false))
+
+	count, err := repo.ExpireDue(context.Background(), now, 50)
+	if err != nil {
+		t.Fatalf("ExpireDue error: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("ExpireDue count = %d, want 1 even though the release job was skipped", count)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet SQL expectations: %v", err)

@@ -74,9 +74,11 @@ func main() {
 		slog.Warn("transaction repository does not support expiry; unpaid transactions will not be expired automatically")
 	}
 	expiryWorker := usecase.NewTransactionExpiryWorker(expiryRepo, cfg)
+	reconciliationAdmin := usecase.NewReconciliationAdminUsecase(reconciliationRepo)
 
 	// Initialize Handlers
 	txHandler := handler.NewTransactionHandler(txUsecase, duitkuClient)
+	reconciliationHandler := handler.NewReconciliationHandler(reconciliationAdmin)
 
 	// Initialize Router
 	r := gin.New()
@@ -101,6 +103,10 @@ func main() {
 	internal.Use(middleware.InternalServiceAuth(cfg.InternalServiceCredential))
 	internal.POST("/transactions", txHandler.GenerateInternalSubscriptionPayment)
 	internal.POST("/transactions/cancel", txHandler.CancelInternalEnrollmentPayment)
+	// Operator-facing recovery path for durable enrollments; there is no platform admin
+	// persona, so it stays behind the internal credential instead of the browser.
+	internal.GET("/reconciliations", reconciliationHandler.ListReconciliations)
+	internal.POST("/reconciliations/requeue", reconciliationHandler.RequeueTerminalFailedReconciliations)
 
 	server := &http.Server{Addr: "0.0.0.0:" + cfg.Port, Handler: r}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
