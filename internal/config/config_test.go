@@ -164,3 +164,36 @@ func TestLoadConfigReadsTransactionClaimTimeoutFromEnvironment(t *testing.T) {
 		t.Fatalf("claim timeout=%d, want 25", config.TransactionClaimTimeoutMinutes)
 	}
 }
+
+// KEL-57: the identity address and permission-check timeout have safe defaults, can be
+// overridden from the environment, and a non-positive timeout falls back to the default
+// instead of disabling the bound.
+func TestLoadConfigIdentityPermissionSettings(t *testing.T) {
+	for _, tc := range []struct {
+		name, host, timeout string
+		wantHost            string
+		wantTimeout         int
+	}{
+		{name: "defaults", wantHost: "localhost:50051", wantTimeout: DefaultIdentityPermissionTimeoutMs},
+		{name: "environment", host: " identity.internal:50051 ", timeout: "1500", wantHost: "identity.internal:50051", wantTimeout: 1500},
+		{name: "zero timeout uses default", timeout: "0", wantHost: "localhost:50051", wantTimeout: DefaultIdentityPermissionTimeoutMs},
+		{name: "negative timeout uses default", timeout: "-5", wantHost: "localhost:50051", wantTimeout: DefaultIdentityPermissionTimeoutMs},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			viper.Reset()
+			t.Chdir(t.TempDir())
+			t.Setenv("JWT_SECRET", "test-secret")
+			t.Setenv("INTERNAL_SERVICE_CREDENTIAL", "test-internal-credential")
+			t.Setenv("IDENTITY_GRPC_HOST", tc.host)
+			t.Setenv("IDENTITY_PERMISSION_TIMEOUT_MS", tc.timeout)
+
+			config, err := LoadConfig()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if config.IdentityGRPCHost != tc.wantHost || config.IdentityPermissionTimeoutMs != tc.wantTimeout {
+				t.Fatalf("identity=%q timeout=%d, want %q/%d", config.IdentityGRPCHost, config.IdentityPermissionTimeoutMs, tc.wantHost, tc.wantTimeout)
+			}
+		})
+	}
+}

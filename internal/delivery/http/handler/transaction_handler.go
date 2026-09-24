@@ -21,10 +21,13 @@ type TransactionHandler struct {
 
 // List godoc
 // @Summary List billing transactions
+// @Description Parents see their own transactions. Tenant members need the `billing:read` permission in their tenant: without it the answer is 403, and while identity cannot be asked it is 503.
 // @Tags Billing
 // @Produce json
 // @Security BearerAuth
 // @Success 200 {object} domain.HTTPResponse{data=domain.TransactionListResponse}
+// @Failure 403 {object} domain.ErrorResponse
+// @Failure 503 {object} domain.ErrorResponse
 // @Router /api/v1/billing/transactions [get]
 func (h *TransactionHandler) List(c *gin.Context) {
 	var tenantID uuid.UUID
@@ -94,11 +97,15 @@ func (h *TransactionHandler) List(c *gin.Context) {
 
 // Get godoc
 // @Summary Get billing transaction
+// @Description Same authorization as the list: parents read their own transaction, tenant members need `billing:read` (403 without it, 503 while identity cannot be asked).
 // @Tags Billing
 // @Produce json
 // @Security BearerAuth
 // @Param id path string true "Transaction UUID"
 // @Success 200 {object} domain.HTTPResponse{data=domain.TransactionResponse}
+// @Failure 403 {object} domain.ErrorResponse
+// @Failure 404 {object} domain.ErrorResponse
+// @Failure 503 {object} domain.ErrorResponse
 // @Router /api/v1/billing/transactions/{id} [get]
 func (h *TransactionHandler) Get(c *gin.Context) {
 	var tenantID uuid.UUID

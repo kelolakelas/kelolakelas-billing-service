@@ -22,6 +22,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Parents see their own transactions. Tenant members need the ` + "`" + `billing:read` + "`" + ` permission in their tenant: without it the answer is 403, and while identity cannot be asked it is 503.",
                 "produces": [
                     "application/json"
                 ],
@@ -47,6 +48,18 @@ const docTemplate = `{
                                 }
                             ]
                         }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
                     }
                 }
             }
@@ -58,6 +71,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Same authorization as the list: parents read their own transaction, tenant members need ` + "`" + `billing:read` + "`" + ` (403 without it, 503 while identity cannot be asked).",
                 "produces": [
                     "application/json"
                 ],
@@ -91,6 +105,24 @@ const docTemplate = `{
                                     }
                                 }
                             ]
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
                         }
                     }
                 }

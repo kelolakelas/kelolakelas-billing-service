@@ -26,6 +26,7 @@ func InternalServiceAuth(credential string) gin.HandlerFunc {
 type Claims struct {
 	UserID   string `json:"user_id"`
 	TenantID string `json:"tenant_id"`
+	RoleID   string `json:"role_id"`
 	MemberID string `json:"member_id"`
 	IsParent bool   `json:"is_parent"`
 	jwt.RegisteredClaims
@@ -53,6 +54,7 @@ func AuthMiddleware(secret string) gin.HandlerFunc {
 		}
 		c.Set("user_id", claims.UserID)
 		c.Set("tenant_id", claims.TenantID)
+		c.Set("role_id", claims.RoleID)
 		c.Set("is_parent", claims.IsParent)
 		c.Next()
 	}

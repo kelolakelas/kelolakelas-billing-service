@@ -16,13 +16,13 @@ import (
 	_ "github.com/kelolakelas/kelolakelas-billing-service/docs"
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/config"
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/delivery/http/handler"
-	"github.com/kelolakelas/kelolakelas-billing-service/internal/delivery/http/middleware"
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/repository"
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/usecase"
 	"github.com/kelolakelas/kelolakelas-billing-service/pkg/academic"
 	"github.com/kelolakelas/kelolakelas-billing-service/pkg/database"
 	"github.com/kelolakelas/kelolakelas-billing-service/pkg/duitku"
 	"github.com/kelolakelas/kelolakelas-billing-service/pkg/email"
+	"github.com/kelolakelas/kelolakelas-billing-service/pkg/identity"
 )
 
 // @title KelolaKelas Billing Service API
@@ -91,22 +91,23 @@ func main() {
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	// Routes
-	apiV1 := r.Group("/api/v1/billing")
-	{
-		apiV1.POST("/webhooks/duitku", txHandler.HandleDuitkuWebhook)
-		protected := apiV1.Group("")
-		protected.Use(middleware.AuthMiddleware(cfg.JWTSecret))
-		protected.GET("/transactions", txHandler.List)
-		protected.GET("/transactions/:id", txHandler.Get)
+	// The permission client connects lazily: billing still starts while identity is
+	// unreachable, and tenant transaction reads answer 503 until it is back.
+	permissionClient, err := identity.NewPermissionClient(cfg.IdentityGRPCHost, time.Duration(cfg.IdentityPermissionTimeoutMs)*time.Millisecond)
+	if err != nil {
+		slog.Error("Failed to initialize identity permission client", "error", err)
+		os.Exit(1)
 	}
-	internal := r.Group("/internal/billing")
-	internal.Use(middleware.InternalServiceAuth(cfg.InternalServiceCredential))
-	internal.POST("/transactions", txHandler.GenerateInternalSubscriptionPayment)
-	internal.POST("/transactions/cancel", txHandler.CancelInternalEnrollmentPayment)
-	// Operator-facing recovery path for durable enrollments; there is no platform admin
-	// persona, so it stays behind the internal credential instead of the browser.
-	internal.GET("/reconciliations", reconciliationHandler.ListReconciliations)
-	internal.POST("/reconciliations/requeue", reconciliationHandler.RequeueTerminalFailedReconciliations)
+	defer permissionClient.Close()
+	registerRoutes(r, routeHandlers{
+		duitkuWebhook:          txHandler.HandleDuitkuWebhook,
+		listTransactions:       txHandler.List,
+		getTransaction:         txHandler.Get,
+		generateInternal:       txHandler.GenerateInternalSubscriptionPayment,
+		cancelInternal:         txHandler.CancelInternalEnrollmentPayment,
+		listReconciliations:    reconciliationHandler.ListReconciliations,
+		requeueReconciliations: reconciliationHandler.RequeueTerminalFailedReconciliations,
+	}, cfg.JWTSecret, cfg.InternalServiceCredential, permissionClient)
 
 	server := &http.Server{Addr: "0.0.0.0:" + cfg.Port, Handler: r}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

@@ -243,6 +243,9 @@ info:
 paths:
   /api/v1/billing/transactions:
     get:
+      description: 'Parents see their own transactions. Tenant members need the `billing:read`
+        permission in their tenant: without it the answer is 403, and while identity
+        cannot be asked it is 503.'
       produces:
       - application/json
       responses:
@@ -255,6 +258,14 @@ paths:
                 data:
                   $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.TransactionListResponse'
               type: object
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
       security:
       - BearerAuth: []
       summary: List billing transactions
@@ -262,6 +273,9 @@ paths:
       - Billing
   /api/v1/billing/transactions/{id}:
     get:
+      description: 'Same authorization as the list: parents read their own transaction,
+        tenant members need `billing:read` (403 without it, 503 while identity cannot
+        be asked).'
       parameters:
       - description: Transaction UUID
         in: path
@@ -280,6 +294,18 @@ paths:
                 data:
                   $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.TransactionResponse'
               type: object
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Get billing transaction
