@@ -47,7 +47,17 @@ type Config struct {
 	TransactionClaimTimeoutMinutes int    `mapstructure:"TRANSACTION_CLAIM_TIMEOUT_MINUTES"`
 	ResendAPIKey                   string `mapstructure:"RESEND_API_KEY"`
 	ResendFromEmail                string `mapstructure:"RESEND_FROM_EMAIL"`
+	// IdentityGRPCHost is the identity gRPC address billing asks for the tenant
+	// `billing:read` permission on transaction reads (KEL-57).
+	IdentityGRPCHost string `mapstructure:"IDENTITY_GRPC_HOST"`
+	// IdentityPermissionTimeoutMs bounds one permission check. When it elapses the read
+	// is refused with 503 instead of waiting on identity.
+	IdentityPermissionTimeoutMs int `mapstructure:"IDENTITY_PERMISSION_TIMEOUT_MS"`
 }
+
+// DefaultIdentityPermissionTimeoutMs is used when IDENTITY_PERMISSION_TIMEOUT_MS is
+// unset, zero, or negative.
+const DefaultIdentityPermissionTimeoutMs = 3000
 
 func LoadConfig() (Config, error) {
 	if err := godotenv.Load(); err != nil {
@@ -67,7 +77,7 @@ func LoadConfig() (Config, error) {
 		"DATABASE_URL", "DB_HOST", "DB_PORT", "DB_SSLMODE", "DB_CHANNEL_BINDING", "DB_USER", "DB_PASSWORD", "DB_NAME",
 		"PORT", "DUITKU_API_BASE_URL", "DUITKU_API_KEY", "DUITKU_MERCHANT_CODE",
 		"DUITKU_CALLBACK_URL", "DUITKU_RETURN_URL", "ACADEMIC_SERVICE_URL", "INTERNAL_SERVICE_CREDENTIAL", "JWT_SECRET",
-		"SUBSCRIPTION_WORKER_ENABLED", "SUBSCRIPTION_WORKER_INTERVAL_MINUTES", "SUBSCRIPTION_PAYMENT_REMINDER_INTERVAL_DAYS", "SUBSCRIPTION_PAYMENT_EXPIRY_PERIOD_DAYS", "PAYMENT_RECONCILIATION_WORKER_ENABLED", "PAYMENT_RECONCILIATION_WORKER_INTERVAL_MINUTES", "PAYMENT_RECONCILIATION_MAX_ATTEMPTS", "TRANSACTION_EXPIRY_WORKER_ENABLED", "TRANSACTION_EXPIRY_WORKER_INTERVAL_MINUTES", "TRANSACTION_CLAIM_TIMEOUT_MINUTES", "RESEND_API_KEY", "RESEND_FROM_EMAIL",
+		"SUBSCRIPTION_WORKER_ENABLED", "SUBSCRIPTION_WORKER_INTERVAL_MINUTES", "SUBSCRIPTION_PAYMENT_REMINDER_INTERVAL_DAYS", "SUBSCRIPTION_PAYMENT_EXPIRY_PERIOD_DAYS", "PAYMENT_RECONCILIATION_WORKER_ENABLED", "PAYMENT_RECONCILIATION_WORKER_INTERVAL_MINUTES", "PAYMENT_RECONCILIATION_MAX_ATTEMPTS", "TRANSACTION_EXPIRY_WORKER_ENABLED", "TRANSACTION_EXPIRY_WORKER_INTERVAL_MINUTES", "TRANSACTION_CLAIM_TIMEOUT_MINUTES", "RESEND_API_KEY", "RESEND_FROM_EMAIL", "IDENTITY_GRPC_HOST", "IDENTITY_PERMISSION_TIMEOUT_MS",
 	} {
 		if err := viper.BindEnv(key); err != nil {
 			return Config{}, err
@@ -147,6 +157,13 @@ func LoadConfig() (Config, error) {
 	}
 	if config.AcademicServiceURL == "" {
 		config.AcademicServiceURL = "http://localhost:8081"
+	}
+	config.IdentityGRPCHost = strings.TrimSpace(config.IdentityGRPCHost)
+	if config.IdentityGRPCHost == "" {
+		config.IdentityGRPCHost = "localhost:50051"
+	}
+	if config.IdentityPermissionTimeoutMs <= 0 {
+		config.IdentityPermissionTimeoutMs = DefaultIdentityPermissionTimeoutMs
 	}
 	if config.JWTSecret == "" {
 		return Config{}, fmt.Errorf("JWT_SECRET is required")
