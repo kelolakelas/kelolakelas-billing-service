@@ -11,7 +11,9 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/kelolakelas/kelolakelas-billing-service/internal/config"
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/domain"
 )
 
@@ -47,6 +49,11 @@ type inquiryResponse struct {
 func NewClient(baseURL, apiKey, merchantCode string, httpClient *http.Client) *DuitkuAdapter {
 	if httpClient == nil {
 		httpClient = &http.Client{}
+	}
+	if httpClient.Timeout <= 0 {
+		bounded := *httpClient
+		bounded.Timeout = time.Duration(config.DefaultProviderHTTPTimeoutSeconds) * time.Second
+		httpClient = &bounded
 	}
 	return &DuitkuAdapter{baseURL: strings.TrimRight(baseURL, "/"), apiKey: apiKey, merchantCode: merchantCode, httpClient: httpClient}
 }

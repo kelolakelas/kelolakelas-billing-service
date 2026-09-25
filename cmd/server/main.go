@@ -52,7 +52,7 @@ func main() {
 	}
 
 	// Initialize Clients
-	duitkuClient := duitku.NewClient(cfg.DuitkuAPIBaseURL, cfg.DuitkuAPIKey, cfg.DuitkuMerchantCode, nil)
+	duitkuClient := duitku.NewClient(cfg.DuitkuAPIBaseURL, cfg.DuitkuAPIKey, cfg.DuitkuMerchantCode, &http.Client{Timeout: time.Duration(cfg.DuitkuHTTPTimeoutSeconds) * time.Second})
 	academicClient := academic.NewClient(cfg.AcademicServiceURL, cfg.InternalServiceCredential)
 
 	// Initialize Repositories
@@ -65,7 +65,7 @@ func main() {
 
 	// Initialize Usecases
 	txUsecase := usecase.NewTransactionUsecaseWithReconciliation(txRepo, walletRepo, ledgerRepo, subscriptionRepo, duitkuClient, academicClient, cfg, txManager, reconciliationRepo)
-	worker := usecase.NewSubscriptionWorker(subscriptionRepo, txRepo, duitkuClient, email.NewResendClient(cfg.ResendAPIKey, cfg.ResendFromEmail), cfg)
+	worker := usecase.NewSubscriptionWorker(subscriptionRepo, txRepo, duitkuClient, email.NewResendClient(cfg.ResendAPIKey, cfg.ResendFromEmail, time.Duration(cfg.ResendHTTPTimeoutSeconds)*time.Second), cfg)
 	reconciliationWorker := usecase.NewPaymentReconciliationWorker(reconciliationRepo, academicClient, cfg)
 	// The expiry worker only needs the expiry capability; when the repository does
 	// not provide it the worker stays idle instead of failing startup.

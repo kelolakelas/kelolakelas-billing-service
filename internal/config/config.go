@@ -24,6 +24,8 @@ type Config struct {
 	DBName                                     string `mapstructure:"DB_NAME"`
 	Port                                       string `mapstructure:"PORT"`
 	DuitkuAPIBaseURL                           string `mapstructure:"DUITKU_API_BASE_URL"`
+	DuitkuHTTPTimeoutSeconds                   int    `mapstructure:"DUITKU_HTTP_TIMEOUT_SECONDS"`
+	ResendHTTPTimeoutSeconds                   int    `mapstructure:"RESEND_HTTP_TIMEOUT_SECONDS"`
 	DuitkuAPIKey                               string `mapstructure:"DUITKU_API_KEY"`
 	DuitkuMerchantCode                         string `mapstructure:"DUITKU_MERCHANT_CODE"`
 	DuitkuCallbackURL                          string `mapstructure:"DUITKU_CALLBACK_URL"`
@@ -59,6 +61,9 @@ type Config struct {
 // unset, zero, or negative.
 const DefaultIdentityPermissionTimeoutMs = 3000
 
+// Both provider calls have a finite bound even when the environment omits the knobs.
+const DefaultProviderHTTPTimeoutSeconds = 10
+
 func LoadConfig() (Config, error) {
 	if err := godotenv.Load(); err != nil {
 		slog.Warn("No .env file found by godotenv")
@@ -75,7 +80,7 @@ func LoadConfig() (Config, error) {
 	viper.AutomaticEnv()
 	for _, key := range []string{
 		"DATABASE_URL", "DB_HOST", "DB_PORT", "DB_SSLMODE", "DB_CHANNEL_BINDING", "DB_USER", "DB_PASSWORD", "DB_NAME",
-		"PORT", "DUITKU_API_BASE_URL", "DUITKU_API_KEY", "DUITKU_MERCHANT_CODE",
+		"PORT", "DUITKU_API_BASE_URL", "DUITKU_HTTP_TIMEOUT_SECONDS", "RESEND_HTTP_TIMEOUT_SECONDS", "DUITKU_API_KEY", "DUITKU_MERCHANT_CODE",
 		"DUITKU_CALLBACK_URL", "DUITKU_RETURN_URL", "ACADEMIC_SERVICE_URL", "INTERNAL_SERVICE_CREDENTIAL", "JWT_SECRET",
 		"SUBSCRIPTION_WORKER_ENABLED", "SUBSCRIPTION_WORKER_INTERVAL_MINUTES", "SUBSCRIPTION_PAYMENT_REMINDER_INTERVAL_DAYS", "SUBSCRIPTION_PAYMENT_EXPIRY_PERIOD_DAYS", "PAYMENT_RECONCILIATION_WORKER_ENABLED", "PAYMENT_RECONCILIATION_WORKER_INTERVAL_MINUTES", "PAYMENT_RECONCILIATION_MAX_ATTEMPTS", "TRANSACTION_EXPIRY_WORKER_ENABLED", "TRANSACTION_EXPIRY_WORKER_INTERVAL_MINUTES", "TRANSACTION_CLAIM_TIMEOUT_MINUTES", "RESEND_API_KEY", "RESEND_FROM_EMAIL", "IDENTITY_GRPC_HOST", "IDENTITY_PERMISSION_TIMEOUT_MS",
 	} {
@@ -148,6 +153,12 @@ func LoadConfig() (Config, error) {
 	}
 	if config.DuitkuAPIBaseURL == "" {
 		config.DuitkuAPIBaseURL = "https://sandbox.duitku.com/webapi/api/merchant"
+	}
+	if config.DuitkuHTTPTimeoutSeconds <= 0 {
+		config.DuitkuHTTPTimeoutSeconds = DefaultProviderHTTPTimeoutSeconds
+	}
+	if config.ResendHTTPTimeoutSeconds <= 0 {
+		config.ResendHTTPTimeoutSeconds = DefaultProviderHTTPTimeoutSeconds
 	}
 	if config.DuitkuCallbackURL == "" {
 		config.DuitkuCallbackURL = "http://localhost:" + config.Port + "/api/v1/billing/webhooks/duitku"

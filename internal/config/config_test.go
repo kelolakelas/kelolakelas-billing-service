@@ -165,6 +165,33 @@ func TestLoadConfigReadsTransactionClaimTimeoutFromEnvironment(t *testing.T) {
 	}
 }
 
+func TestLoadConfigProviderTimeouts(t *testing.T) {
+	for _, tc := range []struct {
+		name, duitku, resend   string
+		wantDuitku, wantResend int
+	}{
+		{name: "defaults", wantDuitku: DefaultProviderHTTPTimeoutSeconds, wantResend: DefaultProviderHTTPTimeoutSeconds},
+		{name: "overrides", duitku: "4", resend: "7", wantDuitku: 4, wantResend: 7},
+		{name: "nonpositive", duitku: "-1", resend: "0", wantDuitku: DefaultProviderHTTPTimeoutSeconds, wantResend: DefaultProviderHTTPTimeoutSeconds},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			viper.Reset()
+			t.Chdir(t.TempDir())
+			t.Setenv("JWT_SECRET", "test-secret")
+			t.Setenv("INTERNAL_SERVICE_CREDENTIAL", "test-internal-credential")
+			t.Setenv("DUITKU_HTTP_TIMEOUT_SECONDS", tc.duitku)
+			t.Setenv("RESEND_HTTP_TIMEOUT_SECONDS", tc.resend)
+			cfg, err := LoadConfig()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.DuitkuHTTPTimeoutSeconds != tc.wantDuitku || cfg.ResendHTTPTimeoutSeconds != tc.wantResend {
+				t.Fatalf("timeouts = %d/%d, want %d/%d", cfg.DuitkuHTTPTimeoutSeconds, cfg.ResendHTTPTimeoutSeconds, tc.wantDuitku, tc.wantResend)
+			}
+		})
+	}
+}
+
 // KEL-57: the identity address and permission-check timeout have safe defaults, can be
 // overridden from the environment, and a non-positive timeout falls back to the default
 // instead of disabling the bound.
