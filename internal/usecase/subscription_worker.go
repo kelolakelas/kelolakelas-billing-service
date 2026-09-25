@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -62,13 +63,16 @@ func (w *SubscriptionWorker) RunOnce(ctx context.Context) {
 	now := w.clock.Now()
 	subscriptions, err := w.subscriptions.ListDueForRenewal(ctx, now.AddDate(0, 0, 7))
 	if err != nil {
+		slog.ErrorContext(ctx, "list due subscriptions for renewal failed", "error", err)
 		return
 	}
 	for i := range subscriptions {
 		if ctx.Err() != nil {
 			return
 		}
-		_ = w.process(ctx, &subscriptions[i], now)
+		if err := w.process(ctx, &subscriptions[i], now); err != nil {
+			slog.ErrorContext(ctx, "process subscription renewal failed", "subscription_id", subscriptions[i].ID, "error", err)
+		}
 	}
 }
 
@@ -197,13 +201,17 @@ func (w *SubscriptionWorker) sendEmails(ctx context.Context, tx *domain.Transact
 	}
 	if tx.PaymentLinkSentAt == nil {
 		if locked, ok := w.transactions.(repository.TransactionLockingRepository); ok {
-			claimed, err := locked.ClaimPaymentLinkEmail(ctx, tx.ID, now)
+			// PostgreSQL timestamps have microsecond precision; use the same rounded
+			// value for claim and conditional release so the equality guard matches.
+			sentAt := now.Round(time.Microsecond)
+			claimed, err := locked.ClaimPaymentLinkEmail(ctx, tx.ID, sentAt)
 			if err != nil || !claimed {
 				return err
 			}
 			if err := send("Payment link subscription"); err != nil {
-				tx.PaymentLinkSentAt = nil
-				_ = w.transactions.Update(ctx, tx)
+				if _, releaseErr := locked.ReleasePaymentLinkEmailClaim(ctx, tx.ID, sentAt); releaseErr != nil {
+					slog.ErrorContext(ctx, "release payment link email claim failed", "transaction_id", tx.ID, "error", releaseErr)
+				}
 				return err
 			}
 		} else if err := send("Payment link subscription"); err != nil {

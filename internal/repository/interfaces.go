@@ -75,6 +75,9 @@ type TransactionLockingRepository interface {
 	// the row, which is what keeps a late success or a concurrent cancellation safe.
 	RestoreFailedInvoiceClaim(ctx context.Context, id uuid.UUID, reason string, now time.Time) (bool, error)
 	ClaimPaymentLinkEmail(ctx context.Context, id uuid.UUID, sentAt time.Time) (bool, error)
+	// ReleasePaymentLinkEmailClaim only clears this worker's stamp on a still-pending row.
+	// It must not rewrite settlement state or release another worker's newer claim.
+	ReleasePaymentLinkEmailClaim(ctx context.Context, id uuid.UUID, sentAt time.Time) (bool, error)
 	ClaimReminderEmail(ctx context.Context, id uuid.UUID, sentAt time.Time, intervalDays int) (bool, error)
 	// CancelUnpaid marks the unpaid transactions of a withdrawn enrollment as
 	// cancelled, and MarkInvoiceIssued stores a freshly created payment link only

@@ -369,6 +369,13 @@ func (r *transactionRepository) ClaimPaymentLinkEmail(ctx context.Context, id uu
 	return result.RowsAffected == 1, result.Error
 }
 
+func (r *transactionRepository) ReleasePaymentLinkEmailClaim(ctx context.Context, id uuid.UUID, sentAt time.Time) (bool, error) {
+	result := r.getDB(ctx).Model(&domain.Transaction{}).
+		Where("id = ? AND status = ? AND payment_link_sent_at = ?", id, domain.TransactionStatusPending, sentAt).
+		Update("payment_link_sent_at", nil)
+	return result.RowsAffected == 1, result.Error
+}
+
 func (r *transactionRepository) ClaimReminderEmail(ctx context.Context, id uuid.UUID, sentAt time.Time, intervalDays int) (bool, error) {
 	cutoff := sentAt.AddDate(0, 0, -intervalDays)
 	result := r.getDB(ctx).Model(&domain.Transaction{}).Where("id = ? AND status = 'pending' AND (last_reminder_sent_at IS NULL OR last_reminder_sent_at <= ?)", id, cutoff).

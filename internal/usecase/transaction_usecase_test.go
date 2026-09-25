@@ -187,6 +187,10 @@ func (r *transactionRepoStub) ClaimPaymentLinkEmail(context.Context, uuid.UUID, 
 	return false, nil
 }
 
+func (r *transactionRepoStub) ReleasePaymentLinkEmailClaim(context.Context, uuid.UUID, time.Time) (bool, error) {
+	return false, nil
+}
+
 func (r *transactionRepoStub) ClaimReminderEmail(context.Context, uuid.UUID, time.Time, int) (bool, error) {
 	return false, nil
 }

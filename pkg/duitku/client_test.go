@@ -6,9 +6,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/domain"
 )
@@ -44,6 +46,32 @@ func TestValidateCallbackSignature(t *testing.T) {
 				t.Fatalf("ValidateCallbackSignature() = %v, want %v", got, test.valid)
 			}
 		})
+	}
+}
+
+func TestCreateInvoiceTimeout(t *testing.T) {
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+	}))
+	defer server.Close()
+	defer close(release)
+	client := NewClient(server.URL, "test-key", "merchant", &http.Client{Timeout: 25 * time.Millisecond})
+	start := time.Now()
+	_, err := client.CreateInvoice(context.Background(), &domain.CreateInvoiceRequest{MerchantOrderID: "order", Amount: 100})
+	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("timeout error = %v, want deadline exceeded", err)
+	}
+	if time.Since(start) > time.Second {
+		t.Fatal("slow Duitku request was not bounded")
+	}
+}
+
+func TestNewClientDefaultsToBoundedTimeout(t *testing.T) {
+	for _, supplied := range []*http.Client{nil, {}, {Timeout: -time.Second}} {
+		if got := NewClient("https://example.test", "key", "merchant", supplied).httpClient.Timeout; got != 10*time.Second {
+			t.Fatalf("default timeout = %v, want 10s", got)
+		}
 	}
 }
 

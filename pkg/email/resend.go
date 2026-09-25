@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
+	"github.com/kelolakelas/kelolakelas-billing-service/internal/config"
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/domain"
 )
 
@@ -15,8 +17,12 @@ type ResendClient struct {
 	httpClient   *http.Client
 }
 
-func NewResendClient(apiKey, from string) domain.EmailClient {
-	return &ResendClient{apiKey: apiKey, from: from, httpClient: &http.Client{}}
+func NewResendClient(apiKey, from string, timeout ...time.Duration) domain.EmailClient {
+	bound := time.Duration(config.DefaultProviderHTTPTimeoutSeconds) * time.Second
+	if len(timeout) > 0 && timeout[0] > 0 {
+		bound = timeout[0]
+	}
+	return &ResendClient{apiKey: apiKey, from: from, httpClient: &http.Client{Timeout: bound}}
 }
 
 func (c *ResendClient) Send(ctx context.Context, message domain.EmailMessage) error {
