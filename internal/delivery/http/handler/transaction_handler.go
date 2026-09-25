@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -172,7 +173,11 @@ func (h *TransactionHandler) CancelInternalEnrollmentPayment(c *gin.Context) {
 		case errors.Is(err, domain.ErrInvalidTransactionStatus):
 			c.JSON(http.StatusConflict, gin.H{"status": "error", "message": "Transaction can no longer be cancelled", "data": nil})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": err.Error(), "data": nil})
+			// KEL-61: the raw usecase error may carry internal details (driver
+			// messages, constraint names), so it is logged server-side and the
+			// client only ever sees a fixed generic message.
+			slog.ErrorContext(c.Request.Context(), "enrollment payment cancellation failed", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "Failed to cancel transaction", "data": nil})
 		}
 		return
 	}
@@ -213,9 +218,13 @@ func (h *TransactionHandler) generateSubscriptionPayment(c *gin.Context) {
 
 	resp, err := h.txUsecase.GenerateSubscriptionPayment(c.Request.Context(), &req)
 	if err != nil {
+		// KEL-61: the raw usecase error may carry internal details (driver
+		// messages, constraint names), so it is logged server-side and the
+		// client only ever sees a fixed generic message.
+		slog.ErrorContext(c.Request.Context(), "subscription payment generation failed", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"status":  "error",
-			"message": err.Error(),
+			"message": "Failed to generate subscription payment",
 			"data":    nil,
 		})
 		return
