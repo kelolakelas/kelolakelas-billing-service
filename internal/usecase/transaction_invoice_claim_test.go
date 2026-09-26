@@ -35,6 +35,9 @@ func (g *failingInvoiceGatewayStub) CreateInvoice(_ context.Context, request *do
 func (g *failingInvoiceGatewayStub) ValidateCallbackSignature(*domain.DuitkuCallbackPayload) bool {
 	return true
 }
+func (g *failingInvoiceGatewayStub) TransactionStatus(context.Context, string) (*domain.PaymentStatus, error) {
+	return nil, errors.New("duitku unavailable")
+}
 
 func claimTestConfig() config.Config {
 	return config.Config{

@@ -149,7 +149,8 @@ func TestPaidCallbackAfterCancellationIsRecordedWithoutReactivating(t *testing.T
 	}
 	reconciliationRepo := &reconciliationRepoStub{item: reconciliation}
 	academicStub := &academicActivationStub{err: errors.New("academic service returned status code 409: enrollment is not pending")}
-	usecase := newTransactionUsecaseForTest(repo, reconciliationRepo, &invoiceGatewayStub{}, academicStub, expiryTestConfig())
+	gateway := &invoiceGatewayStub{status: &domain.PaymentStatus{MerchantOrderID: tx.MerchantOrderID, Reference: "REF-LIVE", Amount: tx.GrossAmount, StatusCode: domain.ResultCodeSuccess}}
+	usecase := newTransactionUsecaseForTest(repo, reconciliationRepo, gateway, academicStub, expiryTestConfig())
 
 	// The parent cancels first: the transaction is withdrawn and the seat is released.
 	if _, err := usecase.CancelEnrollmentPayment(context.Background(), enrollmentID); err != nil {
@@ -160,7 +161,9 @@ func TestPaidCallbackAfterCancellationIsRecordedWithoutReactivating(t *testing.T
 	}
 
 	// The invoice is still payable at the provider, so the payment lands afterwards.
-	if err := usecase.HandleDuitkuWebhook(context.Background(), callbackPayload(tx, domain.ResultCodeSuccess)); err != nil {
+	payload := callbackPayload(tx, domain.ResultCodeSuccess)
+	payload.Reference = "REF-LIVE"
+	if err := usecase.HandleDuitkuWebhook(context.Background(), payload); err != nil {
 		t.Fatalf("HandleDuitkuWebhook() error = %v", err)
 	}
 	if tx.Status != domain.TransactionStatusPaid {
