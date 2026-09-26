@@ -64,7 +64,7 @@ func main() {
 	reconciliationRepo := repository.NewPaymentReconciliationRepository(db)
 
 	// Initialize Usecases
-	txUsecase := usecase.NewTransactionUsecaseWithReconciliation(txRepo, walletRepo, ledgerRepo, subscriptionRepo, duitkuClient, academicClient, cfg, txManager, reconciliationRepo)
+	txUsecase := usecase.NewTransactionUsecaseWithReconciliation(txRepo, walletRepo, ledgerRepo, subscriptionRepo, duitkuClient, academicClient, cfg, txManager, reconciliationRepo, email.NewResendClient(cfg.ResendAPIKey, cfg.ResendFromEmail, time.Duration(cfg.ResendHTTPTimeoutSeconds)*time.Second))
 	worker := usecase.NewSubscriptionWorker(subscriptionRepo, txRepo, duitkuClient, email.NewResendClient(cfg.ResendAPIKey, cfg.ResendFromEmail, time.Duration(cfg.ResendHTTPTimeoutSeconds)*time.Second), cfg)
 	reconciliationWorker := usecase.NewPaymentReconciliationWorker(reconciliationRepo, academicClient, cfg)
 	// The expiry worker only needs the expiry capability; when the repository does

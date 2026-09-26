@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html"
 	"log/slog"
 	"math"
 	"strconv"
@@ -29,6 +30,7 @@ type transactionUsecase struct {
 	cfg                config.Config
 	txManager          repository.BillingTransactionManager
 	reconciliationRepo repository.PaymentReconciliationRepository
+	outcomeEmail       domain.EmailClient
 }
 
 func NewTransactionUsecase(
@@ -58,8 +60,13 @@ func NewTransactionUsecaseWithReconciliation(
 	cfg config.Config,
 	txManager repository.BillingTransactionManager,
 	reconciliationRepo repository.PaymentReconciliationRepository,
+	outcomeEmail ...domain.EmailClient,
 ) TransactionUsecase {
-	return newTransactionUsecase(txRepo, walletRepo, ledgerRepo, subscriptionRepo, paymentGateway, academicClient, cfg, txManager, reconciliationRepo)
+	usecase := newTransactionUsecase(txRepo, walletRepo, ledgerRepo, subscriptionRepo, paymentGateway, academicClient, cfg, txManager, reconciliationRepo)
+	if len(outcomeEmail) > 0 {
+		usecase.(*transactionUsecase).outcomeEmail = outcomeEmail[0]
+	}
+	return usecase
 }
 
 func newTransactionUsecase(
@@ -161,6 +168,7 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 		IsSandbox:              strings.Contains(strings.ToLower(u.cfg.DuitkuAPIBaseURL), "sandbox"),
 		PaymentGatewayProvider: &provider,
 		BillingEmail:           req.SenderEmail,
+		ClassName:              subscription.ClassName,
 	}
 	tx.BillingPeriodStart = &now
 
@@ -625,10 +633,59 @@ func (u *transactionUsecase) HandleDuitkuWebhook(ctx context.Context, payload *d
 	} else if err := u.handleDuitkuWebhookLocal(ctx, payload, confirmed, &tx); err != nil {
 		return err
 	}
-	if tx == nil || tx.Status != "paid" {
+	if tx == nil {
+		return nil
+	}
+	u.sendOutcomeEmail(ctx, tx)
+	if tx.Status != domain.TransactionStatusPaid {
 		return nil
 	}
 	return u.reconcilePayment(ctx, tx)
+}
+
+func (u *transactionUsecase) sendOutcomeEmail(ctx context.Context, tx *domain.Transaction) {
+	if u.outcomeEmail == nil || tx == nil || tx.BillingEmail == "" {
+		return
+	}
+	var subject, body string
+	className := tx.ClassName
+	if className == "" {
+		className = "kelas Anda"
+	}
+	class := html.EscapeString(className)
+	transactionID := html.EscapeString(tx.MerchantOrderID)
+	switch tx.Status {
+	case domain.TransactionStatusPaid:
+		subject = "Pembayaran berhasil"
+		body = fmt.Sprintf("<html><body><p>Halo, pembayaran untuk kelas <strong>%s</strong> telah kami terima.</p><p>Jumlah: IDR %d</p><p>ID transaksi: %s</p></body></html>", class, tx.GrossAmount, transactionID)
+	case domain.TransactionStatusFailed:
+		subject = "Pembayaran belum berhasil"
+		continuePayment := "Buka kembali halaman tagihan di KelolaKelas untuk memilih metode pembayaran dan melanjutkan pembayaran."
+		if link := valueOrEmpty(tx.CheckoutSessionURL); link != "" {
+			continuePayment = fmt.Sprintf("Silakan lanjutkan pembayaran melalui tautan berikut: <a href=\"%s\">Lanjutkan pembayaran</a>.", html.EscapeString(link))
+		}
+		body = fmt.Sprintf("<html><body><p>Pembayaran untuk kelas <strong>%s</strong> sebesar IDR %d belum berhasil.</p><p>%s</p><p>ID transaksi: %s</p></body></html>", class, tx.GrossAmount, continuePayment, transactionID)
+	default:
+		return
+	}
+	lockingRepo, ok := u.txRepo.(repository.TransactionLockingRepository)
+	if !ok {
+		return
+	}
+	sentAt := time.Now().Round(time.Microsecond)
+	claimed, err := lockingRepo.ClaimOutcomeEmail(ctx, tx.ID, tx.Status, sentAt)
+	if err != nil || !claimed {
+		if err != nil {
+			slog.WarnContext(ctx, "failed to claim payment outcome email", "transaction_id", tx.ID.String(), "error", err)
+		}
+		return
+	}
+	if err := u.outcomeEmail.Send(ctx, domain.EmailMessage{To: tx.BillingEmail, Subject: subject, HTML: body}); err != nil {
+		slog.WarnContext(ctx, "failed to send payment outcome email", "transaction_id", tx.ID.String(), "error", err)
+		if _, releaseErr := lockingRepo.ReleaseOutcomeEmailClaim(ctx, tx.ID, tx.Status, sentAt); releaseErr != nil {
+			slog.ErrorContext(ctx, "failed to release payment outcome email claim", "transaction_id", tx.ID.String(), "error", releaseErr)
+		}
+	}
 }
 
 func (u *transactionUsecase) ensureReconciliation(ctx context.Context, tx *domain.Transaction) error {
@@ -859,7 +916,7 @@ func (u *transactionUsecase) handleDuitkuWebhookLocal(ctx context.Context, paylo
 		// released for a transaction this branch actually moved, and the release job is
 		// written through the same context so it commits or rolls back with the status
 		// change — a released seat can never outlive a failed status write.
-		if tx.Status == domain.TransactionStatusPending || tx.Status == "creating" {
+		if tx.Status == domain.TransactionStatusPending || tx.Status == domain.TransactionStatusCreating {
 			tx.Status = domain.TransactionStatusFailed
 			if err := u.txRepo.Update(ctx, tx); err != nil {
 				return fmt.Errorf("failed to update transaction status to failed: %w", err)
@@ -867,6 +924,11 @@ func (u *transactionUsecase) handleDuitkuWebhookLocal(ctx context.Context, paylo
 			if err := u.enqueueSeatRelease(ctx, tx); err != nil {
 				return fmt.Errorf("failed to enqueue enrollment release: %w", err)
 			}
+		}
+		// A failed callback replay is eligible to retry a notification whose send
+		// previously failed and released its claim. Do not repeat the state transition.
+		if tx.Status == domain.TransactionStatusFailed && result != nil {
+			*result = tx
 		}
 	default:
 		// Provider result codes outside the documented contract (00 success, 01

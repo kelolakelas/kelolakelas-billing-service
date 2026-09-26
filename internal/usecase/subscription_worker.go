@@ -88,7 +88,7 @@ func (w *SubscriptionWorker) process(ctx context.Context, subscription *domain.S
 			return baseErr
 		}
 		merchantOrderID := "renewal-" + uuid.NewString()
-		tx = &domain.Transaction{ID: uuid.New(), MerchantOrderID: merchantOrderID, TenantID: base.TenantID, ParentID: base.ParentID, StudentID: base.StudentID, EnrollmentID: base.EnrollmentID, SubtotalAmount: base.SubtotalAmount, DiscountAmount: base.DiscountAmount, GrossAmount: base.GrossAmount, PlatformFee: base.PlatformFee, PaymentGatewayFee: base.PaymentGatewayFee, NetAmount: base.NetAmount, SubscriptionID: &subscription.ID, BillingPeriodStart: &period, BillingEmail: subscription.BillingEmail, Currency: base.Currency, Status: "pending", IsSandbox: base.IsSandbox, PaymentGatewayProvider: base.PaymentGatewayProvider}
+		tx = &domain.Transaction{ID: uuid.New(), MerchantOrderID: merchantOrderID, TenantID: base.TenantID, ParentID: base.ParentID, StudentID: base.StudentID, EnrollmentID: base.EnrollmentID, SubtotalAmount: base.SubtotalAmount, DiscountAmount: base.DiscountAmount, GrossAmount: base.GrossAmount, PlatformFee: base.PlatformFee, PaymentGatewayFee: base.PaymentGatewayFee, NetAmount: base.NetAmount, SubscriptionID: &subscription.ID, BillingPeriodStart: &period, BillingEmail: subscription.BillingEmail, ClassName: subscription.ClassName, Currency: base.Currency, Status: "pending", IsSandbox: base.IsSandbox, PaymentGatewayProvider: base.PaymentGatewayProvider}
 		if err = w.transactions.Create(ctx, tx); err != nil {
 			tx, err = w.transactions.GetBySubscriptionPeriod(ctx, subscription.ID, period)
 			if err != nil {
