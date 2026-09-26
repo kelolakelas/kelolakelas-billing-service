@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -40,21 +41,30 @@ func RequirePermissionUnlessParent(client identity.PermissionClient, permission 
 
 // permissionAllowed writes the failure response and reports false when the caller must
 // not proceed.
+func permissionFailure(c *gin.Context, status int) {
+	message := "Permission denied"
+	if status == http.StatusServiceUnavailable {
+		message = "Authorization service unavailable"
+	}
+	slog.WarnContext(c.Request.Context(), "permission check failed", "request_id", RequestID(c.Request.Context()), "status", status)
+	c.JSON(status, gin.H{"status": "error", "message": message, "data": nil})
+}
+
 func permissionAllowed(c *gin.Context, client identity.PermissionClient, permission string) bool {
 	if client == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "error", "message": "Authorization service unavailable", "data": nil})
+		permissionFailure(c, http.StatusServiceUnavailable)
 		return false
 	}
 	// Tokens issued before the member had a role, or tenant tokens without a role claim,
 	// cannot be authorized and are rejected before identity is asked.
 	roleID, err := uuid.Parse(c.GetString("role_id"))
 	if err != nil || roleID == uuid.Nil {
-		c.JSON(http.StatusForbidden, gin.H{"status": "error", "message": "Permission denied", "data": nil})
+		permissionFailure(c, http.StatusForbidden)
 		return false
 	}
 	tenantID, err := uuid.Parse(c.GetString("tenant_id"))
 	if err != nil || tenantID == uuid.Nil {
-		c.JSON(http.StatusForbidden, gin.H{"status": "error", "message": "Permission denied", "data": nil})
+		permissionFailure(c, http.StatusForbidden)
 		return false
 	}
 	// KEL-80: the check is pinned to the membership the verified token was issued for, so
@@ -63,16 +73,16 @@ func permissionAllowed(c *gin.Context, client identity.PermissionClient, permiss
 	// is rejected here, before identity is consulted.
 	memberID, err := uuid.Parse(c.GetString("member_id"))
 	if err != nil || memberID == uuid.Nil {
-		c.JSON(http.StatusForbidden, gin.H{"status": "error", "message": "Permission denied", "data": nil})
+		permissionFailure(c, http.StatusForbidden)
 		return false
 	}
-	allowed, err := client.CheckPermission(c.Request.Context(), tenantID.String(), roleID.String(), memberID.String(), permission)
+	allowed, err := client.CheckPermission(OutgoingContext(c.Request.Context()), tenantID.String(), roleID.String(), memberID.String(), permission)
 	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "error", "message": "Authorization service unavailable", "data": nil})
+		permissionFailure(c, http.StatusServiceUnavailable)
 		return false
 	}
 	if !allowed {
-		c.JSON(http.StatusForbidden, gin.H{"status": "error", "message": "Permission denied", "data": nil})
+		permissionFailure(c, http.StatusForbidden)
 		return false
 	}
 	return true

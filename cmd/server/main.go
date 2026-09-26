@@ -16,6 +16,7 @@ import (
 	_ "github.com/kelolakelas/kelolakelas-billing-service/docs"
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/config"
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/delivery/http/handler"
+	"github.com/kelolakelas/kelolakelas-billing-service/internal/delivery/http/middleware"
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/repository"
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/usecase"
 	"github.com/kelolakelas/kelolakelas-billing-service/pkg/academic"
@@ -82,7 +83,7 @@ func main() {
 
 	// Initialize Router
 	r := gin.New()
-	r.Use(gin.Recovery())
+	r.Use(middleware.RequestLog(), gin.Recovery())
 
 	// Health check endpoint
 	r.GET("/health", healthHandler("billing-service"))

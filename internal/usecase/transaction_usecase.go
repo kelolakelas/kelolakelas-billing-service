@@ -17,6 +17,7 @@ import (
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/config"
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/domain"
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/repository"
+	"github.com/kelolakelas/kelolakelas-billing-service/internal/requestid"
 	"github.com/kelolakelas/kelolakelas-billing-service/pkg/academic"
 )
 
@@ -742,7 +743,11 @@ func (u *transactionUsecase) reconcilePayment(ctx context.Context, tx *domain.Tr
 		if u.academicClient == nil {
 			return nil
 		}
-		return u.academicClient.ActivateEnrollment(ctx, tx.EnrollmentID)
+		if err := u.academicClient.ActivateEnrollment(ctx, tx.EnrollmentID); err != nil {
+			slog.WarnContext(ctx, "academic enrollment activation failed", "request_id", requestid.FromContext(ctx))
+			return err
+		}
+		return nil
 	}
 	reconciliation, err := u.reconciliationRepo.ClaimDue(ctx, tx.ID, time.Now(), reconciliationLease)
 	if errors.Is(err, gorm.ErrRecordNotFound) {

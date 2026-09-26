@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"math"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/config"
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/domain"
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/repository"
+	"github.com/kelolakelas/kelolakelas-billing-service/internal/requestid"
 	"github.com/kelolakelas/kelolakelas-billing-service/pkg/academic"
 )
 
@@ -60,10 +62,12 @@ func (w *PaymentReconciliationWorker) RunOnce(ctx context.Context) {
 			return
 		}
 		if err != nil {
+			slog.WarnContext(ctx, "payment reconciliation claim failed", "request_id", requestid.FromContext(ctx))
 			return
 		}
 		if err := w.attempt(ctx, reconciliation); err != nil {
-			// The state is persisted by attempt; continue processing other due rows.
+			// Avoid logging provider errors or identifiers; the retry state retains details.
+			slog.WarnContext(ctx, "payment reconciliation persistence failed", "request_id", requestid.FromContext(ctx))
 			continue
 		}
 	}
@@ -84,6 +88,7 @@ func (w *PaymentReconciliationWorker) attempt(ctx context.Context, reconciliatio
 // limit, which is the operator-visible signal that a paid enrollment did not activate.
 func processClaimedReconciliation(ctx context.Context, repo repository.PaymentReconciliationRepository, academicClient academic.Client, cfg config.Config, reconciliation *domain.PaymentReconciliation, now time.Time) error {
 	if academicClient == nil {
+		slog.WarnContext(ctx, "academic reconciliation call unavailable", "request_id", requestid.FromContext(ctx))
 		return repo.MarkRetry(ctx, reconciliation.ID, now.Add(reconciliationBackoff(reconciliation.AttemptCount)), "academic client is unavailable", cfg.PaymentReconciliationMaxAttempts)
 	}
 	var err error
@@ -94,6 +99,7 @@ func processClaimedReconciliation(ctx context.Context, repo repository.PaymentRe
 		err = academicClient.ActivateEnrollment(ctx, reconciliation.EnrollmentID)
 	}
 	if err != nil {
+		slog.WarnContext(ctx, "academic reconciliation call failed", "request_id", requestid.FromContext(ctx))
 		return repo.MarkRetry(ctx, reconciliation.ID, now.Add(reconciliationBackoff(reconciliation.AttemptCount)), err.Error(), cfg.PaymentReconciliationMaxAttempts)
 	}
 	return repo.MarkActive(ctx, reconciliation.ID, now)

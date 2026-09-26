@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"github.com/kelolakelas/kelolakelas-billing-service/internal/delivery/http/middleware"
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/domain"
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/usecase"
 )
@@ -261,6 +262,7 @@ func (h *TransactionHandler) HandleDuitkuWebhook(c *gin.Context) {
 	}
 
 	if !h.paymentGateway.ValidateCallbackSignature(&payload) {
+		slog.WarnContext(c.Request.Context(), "invalid Duitku callback signature", "request_id", middleware.RequestID(c.Request.Context()))
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"status":  "error",
 			"message": "Invalid Duitku callback signature",
@@ -270,6 +272,7 @@ func (h *TransactionHandler) HandleDuitkuWebhook(c *gin.Context) {
 
 	if err := h.txUsecase.HandleDuitkuWebhook(c.Request.Context(), &payload); err != nil {
 		if errors.Is(err, domain.ErrInvalidWebhookSignature) {
+			slog.WarnContext(c.Request.Context(), "invalid Duitku callback signature", "request_id", middleware.RequestID(c.Request.Context()))
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"status":  "error",
 				"message": "Invalid callback signature",
