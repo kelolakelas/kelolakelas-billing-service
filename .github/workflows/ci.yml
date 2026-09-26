@@ -54,3 +54,8 @@ jobs:
 
       - name: Build
         run: go build ./...
+
+      # Fails when code reachable from this module calls a symbol with a known
+      # advisory. Pinned tool version; never run with GOFLAGS=-mod=mod.
+      - name: Vulnerability check
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
