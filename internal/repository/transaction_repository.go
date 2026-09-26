@@ -376,6 +376,39 @@ func (r *transactionRepository) ReleasePaymentLinkEmailClaim(ctx context.Context
 	return result.RowsAffected == 1, result.Error
 }
 
+func (r *transactionRepository) ClaimOutcomeEmail(ctx context.Context, id uuid.UUID, status string, sentAt time.Time) (bool, error) {
+	column := outcomeEmailSentAtColumn(status)
+	if column == "" {
+		return false, nil
+	}
+	result := r.getDB(ctx).Model(&domain.Transaction{}).
+		Where("id = ? AND status = ? AND "+column+" IS NULL", id, status).
+		Update(column, sentAt)
+	return result.RowsAffected == 1, result.Error
+}
+
+func (r *transactionRepository) ReleaseOutcomeEmailClaim(ctx context.Context, id uuid.UUID, status string, sentAt time.Time) (bool, error) {
+	column := outcomeEmailSentAtColumn(status)
+	if column == "" {
+		return false, nil
+	}
+	result := r.getDB(ctx).Model(&domain.Transaction{}).
+		Where("id = ? AND status = ? AND "+column+" = ?", id, status, sentAt).
+		Update(column, nil)
+	return result.RowsAffected == 1, result.Error
+}
+
+func outcomeEmailSentAtColumn(status string) string {
+	switch status {
+	case domain.TransactionStatusPaid:
+		return "paid_email_sent_at"
+	case domain.TransactionStatusFailed:
+		return "failed_email_sent_at"
+	default:
+		return ""
+	}
+}
+
 func (r *transactionRepository) ClaimReminderEmail(ctx context.Context, id uuid.UUID, sentAt time.Time, intervalDays int) (bool, error) {
 	cutoff := sentAt.AddDate(0, 0, -intervalDays)
 	result := r.getDB(ctx).Model(&domain.Transaction{}).Where("id = ? AND status = 'pending' AND (last_reminder_sent_at IS NULL OR last_reminder_sent_at <= ?)", id, cutoff).

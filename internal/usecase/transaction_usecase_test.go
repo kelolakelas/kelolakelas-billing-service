@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -31,6 +32,7 @@ type transactionRepoStub struct {
 	// claimUnavailable forces both claim statements to report that no row matched, which
 	// models the database outcome when another request already owns the claim.
 	claimUnavailable bool
+	outcomeClaims    map[string]bool
 	// restoreErr injects a failing claim release, which models a database that refuses the
 	// recovery write while the provider error is still on its way back to the caller.
 	restoreErr       error
@@ -195,6 +197,40 @@ func (r *transactionRepoStub) ClaimReminderEmail(context.Context, uuid.UUID, tim
 	return false, nil
 }
 
+func (r *transactionRepoStub) ClaimOutcomeEmail(_ context.Context, id uuid.UUID, status string, sentAt time.Time) (bool, error) {
+	current, err := r.current()
+	if err != nil || current.ID != id || current.Status != status {
+		return false, nil
+	}
+	if r.outcomeClaims == nil {
+		r.outcomeClaims = make(map[string]bool)
+	}
+	if r.outcomeClaims[status] {
+		return false, nil
+	}
+	r.outcomeClaims[status] = true
+	if status == domain.TransactionStatusPaid {
+		current.PaidEmailSentAt = &sentAt
+	} else if status == domain.TransactionStatusFailed {
+		current.FailedEmailSentAt = &sentAt
+	}
+	return true, nil
+}
+
+func (r *transactionRepoStub) ReleaseOutcomeEmailClaim(_ context.Context, id uuid.UUID, status string, _ time.Time) (bool, error) {
+	current, err := r.current()
+	if err != nil || current.ID != id || current.Status != status {
+		return false, nil
+	}
+	r.outcomeClaims[status] = false
+	if status == domain.TransactionStatusPaid {
+		current.PaidEmailSentAt = nil
+	} else if status == domain.TransactionStatusFailed {
+		current.FailedEmailSentAt = nil
+	}
+	return true, nil
+}
+
 // CancelUnpaid mirrors the SQL predicate of the real repository: only unpaid rows
 // become cancelled, and a settled row is left untouched so the caller can refuse the
 // cancellation instead of dropping a paid seat. Like the real statement it also
@@ -321,6 +357,105 @@ func newTransactionUsecaseForTest(txRepo *transactionRepoStub, reconciliationRep
 
 func expiryTestConfig() config.Config {
 	return config.Config{SubscriptionPaymentExpiryPeriodDays: 7, PaymentReconciliationMaxAttempts: 3}
+}
+
+type outcomeEmailStub struct {
+	messages []domain.EmailMessage
+	err      error
+}
+
+func (s *outcomeEmailStub) Send(_ context.Context, message domain.EmailMessage) error {
+	s.messages = append(s.messages, message)
+	return s.err
+}
+
+func TestHandleDuitkuWebhookSendsPaidEmailOnceOnReplay(t *testing.T) {
+	tx := &domain.Transaction{
+		ID: uuid.New(), MerchantOrderID: uuid.NewString(), TenantID: uuid.New(), ParentID: uuid.New(),
+		StudentID: uuid.New(), EnrollmentID: uuid.New(), GrossAmount: 40000, NetAmount: 38000,
+		Currency: "IDR", Status: domain.TransactionStatusPending, IsSandbox: true, BillingEmail: "parent@example.com", ClassName: `<Kelas "Maju">`,
+	}
+	repo := &transactionRepoStub{transaction: tx}
+	gateway := &invoiceGatewayStub{}
+	email := &outcomeEmailStub{}
+	u := NewTransactionUsecaseWithReconciliation(repo, &walletRepoStub{}, &ledgerRepoStub{}, &subscriptionRepoStub{}, gateway, nil,
+		expiryTestConfig(), nil, nil, email).(*transactionUsecase)
+	for i := 0; i < 2; i++ {
+		if err := u.HandleDuitkuWebhook(context.Background(), callbackPayload(tx, domain.ResultCodeSuccess)); err != nil {
+			t.Fatalf("HandleDuitkuWebhook() attempt %d error = %v", i+1, err)
+		}
+	}
+	if len(email.messages) != 1 {
+		t.Fatalf("sent %d emails, want exactly 1", len(email.messages))
+	}
+	message := email.messages[0]
+	if message.To != tx.BillingEmail || message.Subject != "Pembayaran berhasil" {
+		t.Fatalf("unexpected paid email: %+v", message)
+	}
+	for _, want := range []string{"Maju", "IDR 40000", tx.MerchantOrderID, "&lt;Kelas &#34;Maju&#34;&gt;"} {
+		if !strings.Contains(message.HTML, want) {
+			t.Errorf("paid email HTML %q does not contain %q", message.HTML, want)
+		}
+	}
+	if strings.Contains(message.HTML, "<Kelas") {
+		t.Errorf("paid email did not escape dynamic class name: %q", message.HTML)
+	}
+}
+
+func TestHandleDuitkuWebhookSendsFailedEmailAndIgnoresResendError(t *testing.T) {
+	paymentLink := "https://pay.example/continue?a=1&b=2"
+	tx := &domain.Transaction{
+		ID: uuid.New(), MerchantOrderID: uuid.NewString(), TenantID: uuid.New(), ParentID: uuid.New(),
+		StudentID: uuid.New(), EnrollmentID: uuid.New(), GrossAmount: 40000, NetAmount: 38000,
+		Currency: "IDR", Status: domain.TransactionStatusPending, IsSandbox: true, BillingEmail: "parent@example.com",
+		CheckoutSessionURL: &paymentLink, ClassName: "Kelas A",
+	}
+	repo := &transactionRepoStub{transaction: tx}
+	email := &outcomeEmailStub{err: errors.New("Resend unavailable")}
+	u := NewTransactionUsecaseWithReconciliation(repo, &walletRepoStub{}, &ledgerRepoStub{}, &subscriptionRepoStub{}, &invoiceGatewayStub{}, nil,
+		expiryTestConfig(), nil, nil, email).(*transactionUsecase)
+	callback := callbackPayload(tx, domain.ResultCodeFailed)
+	if err := u.HandleDuitkuWebhook(context.Background(), callback); err != nil {
+		t.Fatalf("HandleDuitkuWebhook() error = %v", err)
+	}
+	if tx.Status != domain.TransactionStatusFailed {
+		t.Fatalf("transaction status = %q, want failed", tx.Status)
+	}
+	message := email.messages[0]
+	if message.Subject != "Pembayaran belum berhasil" || !strings.Contains(message.HTML, "Lanjutkan pembayaran") || !strings.Contains(message.HTML, "https://pay.example/continue?a=1&amp;b=2") {
+		t.Fatalf("failed email lacks Indonesian continuation guidance or escaped payment link: %+v", message)
+	}
+	if tx.FailedEmailSentAt != nil {
+		t.Fatal("failed email claim should be released after Resend failure")
+	}
+
+	// The callback replay must not repeat the failed transition, but may retry the
+	// notification because the previous delivery failure released its claim.
+	email.err = nil
+	if err := u.HandleDuitkuWebhook(context.Background(), callback); err != nil {
+		t.Fatalf("HandleDuitkuWebhook() replay error = %v", err)
+	}
+	if len(email.messages) != 2 || tx.FailedEmailSentAt == nil || repo.updateCount != 1 {
+		t.Fatalf("retry state: emails=%d claim=%v transaction updates=%d; want 2, claimed, 1", len(email.messages), tx.FailedEmailSentAt != nil, repo.updateCount)
+	}
+}
+
+func TestHandleDuitkuWebhookSkipsOutcomeEmailWithoutBillingEmail(t *testing.T) {
+	tx := &domain.Transaction{
+		ID: uuid.New(), MerchantOrderID: uuid.NewString(), TenantID: uuid.New(), ParentID: uuid.New(),
+		StudentID: uuid.New(), EnrollmentID: uuid.New(), GrossAmount: 40000, NetAmount: 38000,
+		Currency: "IDR", Status: domain.TransactionStatusPending, IsSandbox: true,
+	}
+	repo := &transactionRepoStub{transaction: tx}
+	email := &outcomeEmailStub{}
+	u := NewTransactionUsecaseWithReconciliation(repo, &walletRepoStub{}, &ledgerRepoStub{}, &subscriptionRepoStub{}, &invoiceGatewayStub{}, nil,
+		expiryTestConfig(), nil, nil, email).(*transactionUsecase)
+	if err := u.HandleDuitkuWebhook(context.Background(), callbackPayload(tx, domain.ResultCodeFailed)); err != nil {
+		t.Fatalf("HandleDuitkuWebhook() error = %v", err)
+	}
+	if len(email.messages) != 0 {
+		t.Fatalf("sent %d emails without billing email, want 0", len(email.messages))
+	}
 }
 
 func callbackPayload(tx *domain.Transaction, resultCode string) *domain.DuitkuCallbackPayload {

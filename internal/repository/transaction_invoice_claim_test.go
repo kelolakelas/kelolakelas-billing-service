@@ -52,6 +52,30 @@ func TestClaimInvoiceTakesTheClaimOnlyForClaimableRows(t *testing.T) {
 
 // A claim that loses the race must report false without an error, because the caller has to
 // fall back to the invoice another request is creating rather than failing the payment.
+func TestClaimOutcomeEmailUsesOnlyPaidOrFailedStatuses(t *testing.T) {
+	now := time.Date(2026, time.September, 27, 10, 0, 0, 0, time.UTC)
+	id := uuid.New()
+	repo, mock, cleanup := newTransactionMock(t)
+	defer cleanup()
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`(?s)UPDATE "transactions" SET "paid_email_sent_at"=\$1,"updated_at"=\$2 WHERE \(id = \$3 AND status = \$4 AND paid_email_sent_at IS NULL\) AND "transactions"."deleted_at" IS NULL`).
+		WithArgs(now, sqlmock.AnyArg(), id, domain.TransactionStatusPaid).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	claimed, err := repo.ClaimOutcomeEmail(context.Background(), id, domain.TransactionStatusPaid, now)
+	if err != nil || !claimed {
+		t.Fatalf("ClaimOutcomeEmail(paid) = %v, %v; want true, nil", claimed, err)
+	}
+
+	if claimed, err := repo.ClaimOutcomeEmail(context.Background(), id, "pending", now); err != nil || claimed {
+		t.Fatalf("ClaimOutcomeEmail(pending) = %v, %v; want false, nil", claimed, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet SQL expectations: %v", err)
+	}
+}
+
 func TestClaimInvoiceReportsFalseWhenAnotherRequestOwnsTheRow(t *testing.T) {
 	now := time.Date(2026, time.September, 22, 10, 0, 0, 0, time.UTC)
 	id := uuid.New()

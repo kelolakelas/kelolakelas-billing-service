@@ -134,7 +134,10 @@ type Transaction struct {
 	PaymentIntentID        *string        `gorm:"type:varchar(255);unique;index" json:"payment_intent_id,omitempty"`
 	CheckoutSessionURL     *string        `gorm:"type:text" json:"checkout_session_url,omitempty"`
 	BillingEmail           string         `gorm:"type:varchar(255)" json:"billing_email,omitempty"`
+	ClassName              string         `gorm:"type:varchar(255)" json:"class_name,omitempty"`
 	PaymentLinkSentAt      *time.Time     `gorm:"type:timestamp" json:"payment_link_sent_at,omitempty"`
+	PaidEmailSentAt        *time.Time     `gorm:"type:timestamp" json:"paid_email_sent_at,omitempty"`
+	FailedEmailSentAt      *time.Time     `gorm:"type:timestamp" json:"failed_email_sent_at,omitempty"`
 	LastReminderSentAt     *time.Time     `gorm:"type:timestamp" json:"last_reminder_sent_at,omitempty"`
 	ReminderCount          int            `gorm:"type:int;not null;default:0" json:"reminder_count"`
 	InvoiceExpiresAt       *time.Time     `gorm:"type:timestamp;index" json:"invoice_expires_at,omitempty"`

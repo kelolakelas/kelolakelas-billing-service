@@ -79,6 +79,8 @@ type TransactionLockingRepository interface {
 	// It must not rewrite settlement state or release another worker's newer claim.
 	ReleasePaymentLinkEmailClaim(ctx context.Context, id uuid.UUID, sentAt time.Time) (bool, error)
 	ClaimReminderEmail(ctx context.Context, id uuid.UUID, sentAt time.Time, intervalDays int) (bool, error)
+	ClaimOutcomeEmail(ctx context.Context, id uuid.UUID, status string, sentAt time.Time) (bool, error)
+	ReleaseOutcomeEmailClaim(ctx context.Context, id uuid.UUID, status string, sentAt time.Time) (bool, error)
 	// CancelUnpaid marks the unpaid transactions of a withdrawn enrollment as
 	// cancelled, and MarkInvoiceIssued stores a freshly created payment link only
 	// while the transaction is still awaiting one. Both are conditional updates so
