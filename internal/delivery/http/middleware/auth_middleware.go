@@ -55,6 +55,7 @@ func AuthMiddleware(secret string) gin.HandlerFunc {
 		c.Set("user_id", claims.UserID)
 		c.Set("tenant_id", claims.TenantID)
 		c.Set("role_id", claims.RoleID)
+		c.Set("member_id", claims.MemberID)
 		c.Set("is_parent", claims.IsParent)
 		c.Next()
 	}

@@ -17,6 +17,8 @@ import (
 type fakeIdentityServer struct {
 	lastTenantID string
 	lastRoleID   string
+	lastMemberID string
+	sawMemberID  bool
 	lastPerm     string
 	allowed      bool
 	delay        time.Duration
@@ -33,6 +35,10 @@ func (s *fakeIdentityServer) checkPermission(ctx context.Context, req *structpb.
 	fields := req.GetFields()
 	s.lastTenantID = fields["tenant_id"].GetStringValue()
 	s.lastRoleID = fields["role_id"].GetStringValue()
+	if member, ok := fields["member_id"]; ok {
+		s.sawMemberID = true
+		s.lastMemberID = member.GetStringValue()
+	}
 	s.lastPerm = fields["permission"].GetStringValue()
 	return structpb.NewStruct(map[string]interface{}{"allowed": s.allowed})
 }
@@ -72,7 +78,23 @@ func newClientForTest(t *testing.T, server *fakeIdentityServer, timeout time.Dur
 const (
 	testTenantID = "11111111-1111-1111-1111-111111111111"
 	testRoleID   = "22222222-2222-2222-2222-222222222222"
+	testMemberID = "33333333-3333-3333-3333-333333333333"
 )
+
+// KEL-80: the membership the verified token names reaches identity unchanged next to the
+// existing keys, so identity can deny a removed member or a member whose role changed.
+func TestCheckPermissionSendsMemberIDFromClaim(t *testing.T) {
+	server := &fakeIdentityServer{allowed: true}
+	client := newClientForTest(t, server, time.Second)
+
+	allowed, err := client.CheckPermission(context.Background(), testTenantID, testRoleID, testMemberID, "billing:read")
+	if err != nil || !allowed {
+		t.Fatalf("allowed=%t err=%v, want allowed", allowed, err)
+	}
+	if !server.sawMemberID || server.lastMemberID != testMemberID {
+		t.Fatalf("identity received member_id=%q (present=%t), want %q", server.lastMemberID, server.sawMemberID, testMemberID)
+	}
+}
 
 // KEL-57: billing asks identity the same tenant-scoped question academic asks (ADR 0002),
 // so tenant_id must travel with role_id and the permission name.
@@ -80,7 +102,7 @@ func TestCheckPermissionSendsTenantRoleAndPermission(t *testing.T) {
 	server := &fakeIdentityServer{allowed: true}
 	client := newClientForTest(t, server, time.Second)
 
-	allowed, err := client.CheckPermission(context.Background(), testTenantID, testRoleID, "billing:read")
+	allowed, err := client.CheckPermission(context.Background(), testTenantID, testRoleID, testMemberID, "billing:read")
 	if err != nil || !allowed {
 		t.Fatalf("allowed=%t err=%v, want allowed", allowed, err)
 	}
@@ -91,7 +113,7 @@ func TestCheckPermissionSendsTenantRoleAndPermission(t *testing.T) {
 
 func TestCheckPermissionReportsDenial(t *testing.T) {
 	client := newClientForTest(t, &fakeIdentityServer{allowed: false}, time.Second)
-	allowed, err := client.CheckPermission(context.Background(), testTenantID, testRoleID, "billing:read")
+	allowed, err := client.CheckPermission(context.Background(), testTenantID, testRoleID, testMemberID, "billing:read")
 	if err != nil || allowed {
 		t.Fatalf("allowed=%t err=%v, want a clean denial", allowed, err)
 	}
@@ -102,7 +124,7 @@ func TestCheckPermissionReportsDenial(t *testing.T) {
 func TestCheckPermissionTimesOut(t *testing.T) {
 	client := newClientForTest(t, &fakeIdentityServer{allowed: true, delay: 2 * time.Second}, 50*time.Millisecond)
 	started := time.Now()
-	allowed, err := client.CheckPermission(context.Background(), testTenantID, testRoleID, "billing:read")
+	allowed, err := client.CheckPermission(context.Background(), testTenantID, testRoleID, testMemberID, "billing:read")
 	if err == nil || allowed {
 		t.Fatalf("allowed=%t err=%v, want a timeout error", allowed, err)
 	}

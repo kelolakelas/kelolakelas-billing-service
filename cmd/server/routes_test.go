@@ -21,17 +21,23 @@ const (
 )
 
 // identityStub answers CheckPermission the way identity would for the seeded roles: the
-// Creator role holds every permission, the Teacher role holds none of billing's.
+// Creator role holds every permission, the Teacher role holds none of billing's. Since
+// KEL-76 identity also denies a member_id whose membership was removed or no longer
+// carries the token's role; the removed set models those memberships.
 type identityStub struct {
-	grants map[string]bool // role_id -> holds billing:read
-	err    error
-	calls  []string
+	grants  map[string]bool // role_id -> holds billing:read
+	removed map[string]bool // member_id -> membership no longer active with that role
+	err     error
+	calls   []string
 }
 
-func (s *identityStub) CheckPermission(_ context.Context, tenantID, roleID, permission string) (bool, error) {
-	s.calls = append(s.calls, tenantID+"|"+roleID+"|"+permission)
+func (s *identityStub) CheckPermission(_ context.Context, tenantID, roleID, memberID, permission string) (bool, error) {
+	s.calls = append(s.calls, tenantID+"|"+roleID+"|"+memberID+"|"+permission)
 	if s.err != nil {
 		return false, s.err
+	}
+	if s.removed[memberID] {
+		return false, nil
 	}
 	return permission == middleware.PermissionBillingRead && s.grants[roleID], nil
 }
@@ -97,7 +103,7 @@ func TestTransactionReadsRequireBillingReadForTenantMembers(t *testing.T) {
 	router, rec := newRouteTestRouter(t, stub)
 	transactionPath := "/api/v1/billing/transactions/" + uuid.NewString()
 
-	teacher := signToken(t, middleware.Claims{UserID: uuid.NewString(), TenantID: tenantID, RoleID: teacherRole})
+	teacher := signToken(t, middleware.Claims{UserID: uuid.NewString(), TenantID: tenantID, RoleID: teacherRole, MemberID: uuid.NewString()})
 	for _, target := range []string{"/api/v1/billing/transactions", transactionPath} {
 		if got := serve(router, http.MethodGet, target, teacher, nil); got.Code != http.StatusForbidden {
 			t.Fatalf("Teacher %s status=%d, want 403", target, got.Code)
@@ -108,7 +114,7 @@ func TestTransactionReadsRequireBillingReadForTenantMembers(t *testing.T) {
 	}
 
 	for name, role := range map[string]string{"Creator": creatorRole, "custom role with billing:read": customRole} {
-		token := signToken(t, middleware.Claims{UserID: uuid.NewString(), TenantID: tenantID, RoleID: role})
+		token := signToken(t, middleware.Claims{UserID: uuid.NewString(), TenantID: tenantID, RoleID: role, MemberID: uuid.NewString()})
 		if got := serve(router, http.MethodGet, "/api/v1/billing/transactions", token, nil); got.Code != http.StatusOK {
 			t.Fatalf("%s list status=%d, want 200", name, got.Code)
 		}
@@ -123,13 +129,56 @@ func TestTransactionReadsRequireBillingReadForTenantMembers(t *testing.T) {
 	}
 
 	// A tenant token issued without a role claim cannot be authorized at all.
-	legacy := signToken(t, middleware.Claims{UserID: uuid.NewString(), TenantID: tenantID})
+	legacy := signToken(t, middleware.Claims{UserID: uuid.NewString(), TenantID: tenantID, MemberID: uuid.NewString()})
 	callsBefore := len(stub.calls)
 	if got := serve(router, http.MethodGet, "/api/v1/billing/transactions", legacy, nil); got.Code != http.StatusForbidden {
 		t.Fatalf("token without role_id status=%d, want 403", got.Code)
 	}
 	if len(stub.calls) != callsBefore {
 		t.Fatal("a token without role_id must be rejected before identity is asked")
+	}
+}
+
+// KEL-80 AC2/AC3 through the real route table: the member_id from the verified token
+// reaches identity, a removed member (identity denies that member_id even though the role
+// still holds billing:read) gets 403, and a tenant token without a usable member_id is
+// refused with 403 before identity is asked.
+func TestTransactionReadsArePinnedToTheTokenMembership(t *testing.T) {
+	tenantID := uuid.NewString()
+	creatorRole := uuid.NewString()
+	activeMember := uuid.NewString()
+	removedMember := uuid.NewString()
+	stub := &identityStub{grants: map[string]bool{creatorRole: true}, removed: map[string]bool{removedMember: true}}
+	router, rec := newRouteTestRouter(t, stub)
+
+	active := signToken(t, middleware.Claims{UserID: uuid.NewString(), TenantID: tenantID, RoleID: creatorRole, MemberID: activeMember})
+	if got := serve(router, http.MethodGet, "/api/v1/billing/transactions", active, nil); got.Code != http.StatusOK {
+		t.Fatalf("active member status=%d, want 200", got.Code)
+	}
+	if want := tenantID + "|" + creatorRole + "|" + activeMember + "|" + middleware.PermissionBillingRead; len(stub.calls) != 1 || stub.calls[0] != want {
+		t.Fatalf("identity calls=%v, want [%s]", stub.calls, want)
+	}
+
+	removed := signToken(t, middleware.Claims{UserID: uuid.NewString(), TenantID: tenantID, RoleID: creatorRole, MemberID: removedMember})
+	if got := serve(router, http.MethodGet, "/api/v1/billing/transactions", removed, nil); got.Code != http.StatusForbidden {
+		t.Fatalf("removed member status=%d, want 403", got.Code)
+	}
+	if rec.hits["list"] != 1 {
+		t.Fatalf("list hits=%d, want only the active member to reach the handler", rec.hits["list"])
+	}
+
+	for name, memberID := range map[string]string{"missing": "", "non-UUID": "member-9", "nil": "00000000-0000-0000-0000-000000000000"} {
+		token := signToken(t, middleware.Claims{UserID: uuid.NewString(), TenantID: tenantID, RoleID: creatorRole, MemberID: memberID})
+		callsBefore := len(stub.calls)
+		if got := serve(router, http.MethodGet, "/api/v1/billing/transactions", token, nil); got.Code != http.StatusForbidden {
+			t.Fatalf("%s member_id status=%d, want 403", name, got.Code)
+		}
+		if len(stub.calls) != callsBefore {
+			t.Fatalf("%s member_id reached identity", name)
+		}
+	}
+	if rec.hits["list"] != 1 {
+		t.Fatalf("list hits=%d, refused tokens must not reach the handler", rec.hits["list"])
 	}
 }
 
@@ -152,7 +201,7 @@ func TestParentTransactionReadsSkipThePermissionCheck(t *testing.T) {
 func TestTransactionReadsFailClosedWhenIdentityIsUnavailable(t *testing.T) {
 	stub := &identityStub{err: errors.New("rpc error: code = Unavailable")}
 	router, rec := newRouteTestRouter(t, stub)
-	member := signToken(t, middleware.Claims{UserID: uuid.NewString(), TenantID: uuid.NewString(), RoleID: uuid.NewString()})
+	member := signToken(t, middleware.Claims{UserID: uuid.NewString(), TenantID: uuid.NewString(), RoleID: uuid.NewString(), MemberID: uuid.NewString()})
 
 	got := serve(router, http.MethodGet, "/api/v1/billing/transactions", member, nil)
 	if got.Code != http.StatusServiceUnavailable {
