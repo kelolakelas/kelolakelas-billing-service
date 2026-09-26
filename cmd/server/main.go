@@ -87,6 +87,12 @@ func main() {
 
 	// Health check endpoint
 	r.GET("/health", healthHandler("billing-service"))
+	sqlDB, err := db.DB()
+	if err != nil {
+		slog.Error("Failed to access database pool", "error", err)
+		os.Exit(1)
+	}
+	r.GET("/ready", readinessHandler(sqlDB))
 
 	// Swagger UI
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
