@@ -33,8 +33,16 @@ type DuitkuCallbackPayload struct {
 	SettlementDate  string `form:"settlementDate" json:"settlementDate"`
 }
 
+type PaymentStatus struct {
+	MerchantOrderID string
+	Reference       string
+	Amount          int64
+	StatusCode      string
+}
+
 type PaymentGateway interface {
 	CreateInvoice(ctx context.Context, request *CreateInvoiceRequest) (*CreateInvoiceResponse, error)
+	TransactionStatus(ctx context.Context, merchantOrderID string) (*PaymentStatus, error)
 	ValidateCallbackSignature(payload *DuitkuCallbackPayload) bool
 }
 

@@ -285,7 +285,10 @@ func (s *subscriptionRepoStub) ListDueForRenewal(context.Context, time.Time) ([]
 }
 
 type invoiceGatewayStub struct {
-	requests []*domain.CreateInvoiceRequest
+	requests    []*domain.CreateInvoiceRequest
+	status      *domain.PaymentStatus
+	statusErr   error
+	statusCalls int
 }
 
 func (g *invoiceGatewayStub) CreateInvoice(_ context.Context, request *domain.CreateInvoiceRequest) (*domain.CreateInvoiceResponse, error) {
@@ -298,6 +301,16 @@ func (g *invoiceGatewayStub) CreateInvoice(_ context.Context, request *domain.Cr
 
 func (g *invoiceGatewayStub) ValidateCallbackSignature(*domain.DuitkuCallbackPayload) bool {
 	return true
+}
+func (g *invoiceGatewayStub) TransactionStatus(_ context.Context, merchantOrderID string) (*domain.PaymentStatus, error) {
+	g.statusCalls++
+	if g.statusErr != nil {
+		return nil, g.statusErr
+	}
+	if g.status != nil {
+		return g.status, nil
+	}
+	return &domain.PaymentStatus{MerchantOrderID: merchantOrderID, Reference: "REF-PAID", Amount: 40000, StatusCode: domain.ResultCodeSuccess}, nil
 }
 
 func newTransactionUsecaseForTest(txRepo *transactionRepoStub, reconciliationRepo *reconciliationRepoStub, gateway domain.PaymentGateway, academicClient academic.Client, cfg config.Config) TransactionUsecase {

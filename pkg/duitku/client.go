@@ -46,6 +46,13 @@ type inquiryResponse struct {
 	StatusMessage string `json:"statusMessage"`
 }
 
+type statusResponse struct {
+	MerchantOrderID string `json:"merchantOrderId"`
+	Reference       string `json:"reference"`
+	Amount          string `json:"amount"`
+	StatusCode      string `json:"statusCode"`
+}
+
 func NewClient(baseURL, apiKey, merchantCode string, httpClient *http.Client) *DuitkuAdapter {
 	if httpClient == nil {
 		httpClient = &http.Client{}
@@ -98,6 +105,42 @@ func (c *DuitkuAdapter) CreateInvoice(ctx context.Context, request *domain.Creat
 		return nil, fmt.Errorf("Duitku inquiry rejected: %s", result.StatusMessage)
 	}
 	return &domain.CreateInvoiceResponse{Reference: result.Reference, PaymentURL: result.PaymentURL}, nil
+}
+
+// TransactionStatus checks one merchant order; a malformed or incomplete provider
+// response is an error rather than evidence of a successful payment.
+func (c *DuitkuAdapter) TransactionStatus(ctx context.Context, merchantOrderID string) (*domain.PaymentStatus, error) {
+	body, err := json.Marshal(struct {
+		MerchantCode    string `json:"merchantCode"`
+		MerchantOrderID string `json:"merchantOrderId"`
+		Signature       string `json:"signature"`
+	}{c.merchantCode, merchantOrderID, c.signature(c.merchantCode + merchantOrderID)})
+	if err != nil {
+		return nil, fmt.Errorf("marshal Duitku status request: %w", err)
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/transactionStatus", strings.NewReader(string(body)))
+	if err != nil {
+		return nil, fmt.Errorf("create Duitku status request: %w", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json")
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("send Duitku status request: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("Duitku status request failed with HTTP %d", response.StatusCode)
+	}
+	var result statusResponse
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode Duitku status response: %w", err)
+	}
+	amount, err := strconv.ParseInt(result.Amount, 10, 64)
+	if err != nil || result.MerchantOrderID == "" || result.StatusCode == "" || result.Amount == "" {
+		return nil, fmt.Errorf("incomplete Duitku status response")
+	}
+	return &domain.PaymentStatus{MerchantOrderID: result.MerchantOrderID, Reference: result.Reference, Amount: amount, StatusCode: result.StatusCode}, nil
 }
 
 func (c *DuitkuAdapter) ValidateCallbackSignature(payload *domain.DuitkuCallbackPayload) bool {

@@ -578,15 +578,51 @@ func (u *transactionUsecase) GetByIDScoped(ctx context.Context, tenantID, parent
 }
 
 func (u *transactionUsecase) HandleDuitkuWebhook(ctx context.Context, payload *domain.DuitkuCallbackPayload) error {
+	var confirmed *domain.PaymentStatus
+	if payload.ResultCode == domain.ResultCodeSuccess {
+		// Provider I/O must not hold the transaction row lock. The locked path below
+		// rechecks the row and its amount before committing any financial effect.
+		id, err := uuid.Parse(payload.MerchantOrderID)
+		var existing *domain.Transaction
+		if err == nil {
+			existing, err = u.txRepo.GetByID(ctx, id)
+		} else if lookup, ok := u.txRepo.(interface {
+			GetByMerchantOrderID(context.Context, string) (*domain.Transaction, error)
+		}); ok {
+			existing, err = lookup.GetByMerchantOrderID(ctx, payload.MerchantOrderID)
+		} else {
+			return domain.ErrTransactionNotFound
+		}
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return domain.ErrTransactionNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("failed to fetch transaction: %w", err)
+		}
+		if existing.Status != domain.TransactionStatusPaid {
+			amount, parseErr := strconv.ParseInt(payload.Amount, 10, 64)
+			if parseErr != nil || amount != existing.GrossAmount {
+				return fmt.Errorf("callback amount does not match transaction")
+			}
+			confirmed, err = u.paymentGateway.TransactionStatus(ctx, payload.MerchantOrderID)
+			if err != nil {
+				slog.WarnContext(ctx, "Duitku payment status unavailable", "merchant_order_id", payload.MerchantOrderID, "transaction_id", existing.ID.String(), "error", err)
+				return fmt.Errorf("failed to confirm Duitku payment status: %w", err)
+			}
+			if confirmed == nil {
+				return fmt.Errorf("empty Duitku payment status")
+			}
+		}
+	}
 	var tx *domain.Transaction
 	if u.txManager != nil {
 		err := u.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
-			return u.handleDuitkuWebhookLocal(txCtx, payload, &tx)
+			return u.handleDuitkuWebhookLocal(txCtx, payload, confirmed, &tx)
 		})
 		if err != nil {
 			return err
 		}
-	} else if err := u.handleDuitkuWebhookLocal(ctx, payload, &tx); err != nil {
+	} else if err := u.handleDuitkuWebhookLocal(ctx, payload, confirmed, &tx); err != nil {
 		return err
 	}
 	if tx == nil || tx.Status != "paid" {
@@ -661,7 +697,7 @@ func (u *transactionUsecase) reconcilePayment(ctx context.Context, tx *domain.Tr
 	return processClaimedReconciliation(ctx, u.reconciliationRepo, u.academicClient, u.cfg, reconciliation, time.Now())
 }
 
-func (u *transactionUsecase) handleDuitkuWebhookLocal(ctx context.Context, payload *domain.DuitkuCallbackPayload, result **domain.Transaction) error {
+func (u *transactionUsecase) handleDuitkuWebhookLocal(ctx context.Context, payload *domain.DuitkuCallbackPayload, confirmed *domain.PaymentStatus, result **domain.Transaction) error {
 	transactionID, err := uuid.Parse(payload.MerchantOrderID)
 	var tx *domain.Transaction
 	if err != nil {
@@ -709,6 +745,19 @@ func (u *transactionUsecase) handleDuitkuWebhookLocal(ctx context.Context, paylo
 
 	switch payload.ResultCode {
 	case domain.ResultCodeSuccess:
+		statusCode := ""
+		if confirmed != nil {
+			statusCode = confirmed.StatusCode
+		}
+		if confirmed == nil || confirmed.StatusCode != domain.ResultCodeSuccess ||
+			confirmed.MerchantOrderID != tx.MerchantOrderID || confirmed.Reference == "" || confirmed.Amount != tx.GrossAmount ||
+			(tx.PaymentIntentID != nil && *tx.PaymentIntentID != "" && confirmed.Reference != *tx.PaymentIntentID) ||
+			(payload.Reference != "" && confirmed.Reference != payload.Reference) {
+			slog.WarnContext(ctx, "Duitku callback payment not confirmed",
+				"merchant_order_id", tx.MerchantOrderID, "transaction_id", tx.ID.String(),
+				"status_code", statusCode)
+			return fmt.Errorf("Duitku payment status does not confirm transaction")
+		}
 		// A successful payment is honoured even when the local expiry already fired:
 		// the parent really did pay, so the transaction becomes `paid` and the usual
 		// activation reconciliation is enqueued. `expired_at` is kept as evidence that
