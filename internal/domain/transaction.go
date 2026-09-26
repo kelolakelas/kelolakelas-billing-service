@@ -171,8 +171,11 @@ type GenerateSubscriptionPaymentRequest struct {
 	PaymentGatewayFee int64      `json:"payment_gateway_fee" binding:"gte=0"`
 	Title             string     `json:"title"`
 	SenderName        string     `json:"sender_name"`
-	SenderEmail       string     `json:"sender_email"`
-	SenderPhone       string     `json:"sender_phone"`
+	// SenderEmail is optional during the rollout. A non-empty value must be a real
+	// email address: the binding rejects anything else before any transaction or
+	// subscription row is written (KEL-75).
+	SenderEmail string `json:"sender_email" binding:"omitempty,email"`
+	SenderPhone string `json:"sender_phone"`
 }
 
 type GenerateSubscriptionPaymentResponse struct {

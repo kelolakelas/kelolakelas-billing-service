@@ -27,6 +27,9 @@ type transactionUsecaseStub struct {
 	// lastQuery records the filter the list handler forwarded, so the tests can prove a
 	// status the API accepts is the status the domain search actually receives.
 	lastQuery domain.TransactionQuery
+	// lastSenderEmail records the sender_email the generate handler forwarded, so the
+	// tests can prove binding validation and forwarding in one place.
+	lastSenderEmail string
 }
 
 func (s *transactionUsecaseStub) CreateTransaction(context.Context, *domain.Transaction) error {
@@ -37,8 +40,10 @@ func (s *transactionUsecaseStub) GetTransaction(context.Context, uuid.UUID) (*do
 	return nil, nil
 }
 
-func (s *transactionUsecaseStub) GenerateSubscriptionPayment(context.Context, *domain.GenerateSubscriptionPaymentRequest) (*domain.GenerateSubscriptionPaymentResponse, error) {
-	return nil, nil
+func (s *transactionUsecaseStub) GenerateSubscriptionPayment(_ context.Context, request *domain.GenerateSubscriptionPaymentRequest) (*domain.GenerateSubscriptionPaymentResponse, error) {
+	s.calls++
+	s.lastSenderEmail = request.SenderEmail
+	return &domain.GenerateSubscriptionPaymentResponse{TransactionID: uuid.New(), Status: domain.TransactionStatusPending}, nil
 }
 
 func (s *transactionUsecaseStub) CancelEnrollmentPayment(_ context.Context, enrollmentID uuid.UUID) (*domain.TransactionResponse, error) {
