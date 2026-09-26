@@ -20,8 +20,10 @@ type PermissionClient interface {
 	// CheckPermission asks identity whether roleID grants permission while operating on
 	// tenantID. The tenant is part of the question because identity only accepts a role
 	// that belongs to that tenant or is a system role, so a role lifted from another
-	// tenant can never satisfy the check.
-	CheckPermission(ctx context.Context, tenantID, roleID, permission string) (bool, error)
+	// tenant can never satisfy the check. memberID is the membership the verified token
+	// was issued for (KEL-80): identity pins the check to that membership, so a member who
+	// was removed or moved to another role is denied even while the token is still valid.
+	CheckPermission(ctx context.Context, tenantID, roleID, memberID, permission string) (bool, error)
 	Close() error
 }
 
@@ -41,7 +43,7 @@ func NewPermissionClient(target string, timeout time.Duration) (PermissionClient
 	return &permissionClient{conn: conn, timeout: timeout}, nil
 }
 
-func (c *permissionClient) CheckPermission(ctx context.Context, tenantID, roleID, permission string) (bool, error) {
+func (c *permissionClient) CheckPermission(ctx context.Context, tenantID, roleID, memberID, permission string) (bool, error) {
 	// A hung identity must not hold a transaction read open indefinitely; the deadline
 	// turns it into an error, which the middleware reports as 503.
 	if c.timeout > 0 {
@@ -49,10 +51,13 @@ func (c *permissionClient) CheckPermission(ctx context.Context, tenantID, roleID
 		ctx, cancel = context.WithTimeout(ctx, c.timeout)
 		defer cancel()
 	}
+	// member_id is an additive field: an identity that predates it ignores the key and
+	// keeps answering from the role alone.
 	req, err := structpb.NewStruct(map[string]interface{}{
 		"role_id":    roleID,
 		"permission": permission,
 		"tenant_id":  tenantID,
+		"member_id":  memberID,
 	})
 	if err != nil {
 		return false, err

@@ -20,9 +20,10 @@ const PermissionBillingRead = "billing:read"
 // inside the tenant resolved from its verified JWT claim. It must run after
 // AuthMiddleware, which puts the claims on the context.
 //
-// The semantics match academic's permission middleware (ADR 0002): a missing role or
-// tenant claim, or a denial, is 403; an unusable or unreachable authorization service
-// is 503. Neither failure lets the request reach the handler, so no data is served.
+// The semantics match academic's permission middleware (ADR 0002): a missing role,
+// tenant, or member_id claim, or a denial, is 403; an unusable or unreachable
+// authorization service is 503. Neither failure lets the request reach the handler,
+// so no data is served.
 func RequirePermissionUnlessParent(client identity.PermissionClient, permission string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.GetBool("is_parent") {
@@ -56,7 +57,16 @@ func permissionAllowed(c *gin.Context, client identity.PermissionClient, permiss
 		c.JSON(http.StatusForbidden, gin.H{"status": "error", "message": "Permission denied", "data": nil})
 		return false
 	}
-	allowed, err := client.CheckPermission(c.Request.Context(), tenantID.String(), roleID.String(), permission)
+	// KEL-80: the check is pinned to the membership the verified token was issued for, so
+	// identity can deny a member who was removed or moved to another role while the token
+	// is still valid. A tenant token without a usable member_id claim cannot be pinned and
+	// is rejected here, before identity is consulted.
+	memberID, err := uuid.Parse(c.GetString("member_id"))
+	if err != nil || memberID == uuid.Nil {
+		c.JSON(http.StatusForbidden, gin.H{"status": "error", "message": "Permission denied", "data": nil})
+		return false
+	}
+	allowed, err := client.CheckPermission(c.Request.Context(), tenantID.String(), roleID.String(), memberID.String(), permission)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "error", "message": "Authorization service unavailable", "data": nil})
 		return false
