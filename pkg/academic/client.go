@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/kelolakelas/kelolakelas-billing-service/internal/requestid"
 )
 
 // Client performs the enrollment side effects billing owes Academic. Each call is
@@ -65,6 +67,9 @@ func (c *client) callEnrollment(ctx context.Context, enrollmentID uuid.UUID, act
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Internal-Service-Credential", c.credential)
+	if id := requestid.FromContext(ctx); id != "" {
+		req.Header.Set("X-Request-ID", id)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
