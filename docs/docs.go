@@ -526,6 +526,7 @@ const docTemplate = `{
                     "minimum": 0
                 },
                 "sender_email": {
+                    "description": "SenderEmail is optional during the rollout. A non-empty value must be a real\nemail address: the binding rejects anything else before any transaction or\nsubscription row is written (KEL-75).",
                     "type": "string"
                 },
                 "sender_name": {

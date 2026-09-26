@@ -68,6 +68,10 @@ definitions:
         minimum: 0
         type: integer
       sender_email:
+        description: |-
+          SenderEmail is optional during the rollout. A non-empty value must be a real
+          email address: the binding rejects anything else before any transaction or
+          subscription row is written (KEL-75).
         type: string
       sender_name:
         type: string
