@@ -350,9 +350,11 @@ func (g *invoiceGatewayStub) TransactionStatus(_ context.Context, merchantOrderI
 }
 
 func newTransactionUsecaseForTest(txRepo *transactionRepoStub, reconciliationRepo *reconciliationRepoStub, gateway domain.PaymentGateway, academicClient academic.Client, cfg config.Config) TransactionUsecase {
-	return NewTransactionUsecaseWithReconciliation(
+	// KEL-99: every new transaction needs an applied platform fee policy; the
+	// explicit baseline (version 0, 0 bps + Rp0) keeps these tests' amounts.
+	return WithPlatformFeePolicy(NewTransactionUsecaseWithReconciliation(
 		txRepo, &walletRepoStub{}, &ledgerRepoStub{}, &subscriptionRepoStub{}, gateway, academicClient, cfg, nil, reconciliationRepo,
-	)
+	), &feePolicyReaderStub{policy: domain.PlatformFeePolicy{}})
 }
 
 func expiryTestConfig() config.Config {

@@ -372,7 +372,7 @@ const docTemplate = `{
         },
         "/internal/billing/transactions": {
             "post": {
-                "description": "Internal service-to-service endpoint for generating a billing invoice.",
+                "description": "Internal service-to-service endpoint for generating a billing invoice. The platform fee is computed from the applied platform fee policy (KEL-99); the request's platform_fee is ignored.",
                 "consumes": [
                     "application/json"
                 ],
@@ -419,8 +419,20 @@ const docTemplate = `{
                             "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
                         }
                     },
+                    "422": {
+                        "description": "code platform_fee_exceeds_gross",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "code platform_fee_policy_unavailable",
                         "schema": {
                             "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
                         }
@@ -603,6 +615,7 @@ const docTemplate = `{
                     "minimum": 0
                 },
                 "platform_fee": {
+                    "description": "PlatformFee is accepted for compatibility with existing callers but is\nignored (KEL-99): billing computes the fee from the applied platform fee\npolicy it reads from identity.",
                     "type": "integer",
                     "minimum": 0
                 },
@@ -848,6 +861,15 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "platform_fee": {
+                    "type": "integer"
+                },
+                "platform_fee_fixed": {
+                    "type": "integer"
+                },
+                "platform_fee_percent_bps": {
+                    "type": "integer"
+                },
+                "platform_fee_policy_version": {
                     "type": "integer"
                 },
                 "reconciliation_attempts": {

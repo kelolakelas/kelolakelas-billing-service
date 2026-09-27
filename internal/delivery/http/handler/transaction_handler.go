@@ -250,14 +250,16 @@ func NewTransactionHandler(txUsecase usecase.TransactionUsecase, paymentGateway 
 
 // GenerateInternalSubscriptionPayment godoc
 // @Summary Generate subscription payment from an internal service
-// @Description Internal service-to-service endpoint for generating a billing invoice.
+// @Description Internal service-to-service endpoint for generating a billing invoice. The platform fee is computed from the applied platform fee policy (KEL-99); the request's platform_fee is ignored.
 // @Tags Billing
 // @Accept json
 // @Produce json
 // @Param request body domain.GenerateSubscriptionPaymentRequest true "Payment request details"
 // @Success 201 {object} domain.HTTPResponse{data=domain.GenerateSubscriptionPaymentResponse}
 // @Failure 400 {object} domain.ErrorResponse
+// @Failure 422 {object} domain.ErrorResponse "code platform_fee_exceeds_gross"
 // @Failure 500 {object} domain.ErrorResponse
+// @Failure 503 {object} domain.ErrorResponse "code platform_fee_policy_unavailable"
 // @Router /internal/billing/transactions [post]
 func (h *TransactionHandler) GenerateInternalSubscriptionPayment(c *gin.Context) {
 	h.generateSubscriptionPayment(c)
@@ -275,6 +277,29 @@ func (h *TransactionHandler) generateSubscriptionPayment(c *gin.Context) {
 	}
 
 	resp, err := h.txUsecase.GenerateSubscriptionPayment(c.Request.Context(), &req)
+	if errors.Is(err, domain.ErrPlatformFeeExceedsGross) {
+		// KEL-99: a stable machine-readable code so callers can tell this apart
+		// from other validation failures. No record was written.
+		c.JSON(http.StatusUnprocessableEntity, gin.H{
+			"status":  "error",
+			"code":    domain.PlatformFeeExceedsGrossCode,
+			"message": domain.PlatformFeeExceedsGrossMessage,
+			"data":    nil,
+		})
+		return
+	}
+	if errors.Is(err, domain.ErrPlatformFeePolicyUnavailable) || errors.Is(err, domain.ErrPlatformFeeAmountOutOfRange) {
+		// KEL-99: fail closed. Without a trustworthy applied fee policy no
+		// transaction is created, and the request can be retried later.
+		slog.ErrorContext(c.Request.Context(), "subscription payment refused: platform fee policy", "error", err)
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"status":  "error",
+			"code":    "platform_fee_policy_unavailable",
+			"message": "Platform fee policy is unavailable",
+			"data":    nil,
+		})
+		return
+	}
 	if err != nil {
 		// KEL-61: the raw usecase error may carry internal details (driver
 		// messages, constraint names), so it is logged server-side and the
