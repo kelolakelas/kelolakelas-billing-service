@@ -28,6 +28,15 @@ type SubscriptionWorker struct {
 	email         domain.EmailClient
 	cfg           config.Config
 	clock         Clock
+	// feePolicy prices each renewal transaction from the policy applied when the
+	// renewal is created (KEL-99). Without it no renewal transaction is created.
+	feePolicy domain.PlatformFeePolicyReader
+}
+
+// WithPlatformFeePolicy attaches the platform fee policy reader for renewals.
+func (w *SubscriptionWorker) WithPlatformFeePolicy(reader domain.PlatformFeePolicyReader) *SubscriptionWorker {
+	w.feePolicy = reader
+	return w
 }
 
 func NewSubscriptionWorker(subscriptions repository.SubscriptionRepository, transactions repository.TransactionRepository, gateway domain.PaymentGateway, email domain.EmailClient, cfg config.Config, clock ...Clock) *SubscriptionWorker {
@@ -88,7 +97,14 @@ func (w *SubscriptionWorker) process(ctx context.Context, subscription *domain.S
 			return baseErr
 		}
 		merchantOrderID := "renewal-" + uuid.NewString()
-		tx = &domain.Transaction{ID: uuid.New(), MerchantOrderID: merchantOrderID, TenantID: base.TenantID, ParentID: base.ParentID, StudentID: base.StudentID, EnrollmentID: base.EnrollmentID, SubtotalAmount: base.SubtotalAmount, DiscountAmount: base.DiscountAmount, GrossAmount: base.GrossAmount, PlatformFee: base.PlatformFee, PaymentGatewayFee: base.PaymentGatewayFee, NetAmount: base.NetAmount, SubscriptionID: &subscription.ID, BillingPeriodStart: &period, BillingEmail: subscription.BillingEmail, ClassName: subscription.ClassName, Currency: base.Currency, Status: "pending", IsSandbox: base.IsSandbox, PaymentGatewayProvider: base.PaymentGatewayProvider}
+		// A renewal is a new transaction: its fee comes from the policy applied now,
+		// not from the base transaction's snapshot, and it fails closed.
+		fees, feeErr := newTransactionFees(ctx, w.feePolicy, base.GrossAmount, base.PaymentGatewayFee)
+		if feeErr != nil {
+			return feeErr
+		}
+		tx = &domain.Transaction{ID: uuid.New(), MerchantOrderID: merchantOrderID, TenantID: base.TenantID, ParentID: base.ParentID, StudentID: base.StudentID, EnrollmentID: base.EnrollmentID, SubtotalAmount: base.SubtotalAmount, DiscountAmount: base.DiscountAmount, GrossAmount: base.GrossAmount, PaymentGatewayFee: base.PaymentGatewayFee, SubscriptionID: &subscription.ID, BillingPeriodStart: &period, BillingEmail: subscription.BillingEmail, ClassName: subscription.ClassName, Currency: base.Currency, Status: "pending", IsSandbox: base.IsSandbox, PaymentGatewayProvider: base.PaymentGatewayProvider}
+		fees.Apply(tx)
 		if err = w.transactions.Create(ctx, tx); err != nil {
 			tx, err = w.transactions.GetBySubscriptionPeriod(ctx, subscription.ID, period)
 			if err != nil {

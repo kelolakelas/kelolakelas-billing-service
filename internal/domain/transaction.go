@@ -111,43 +111,50 @@ func IsKnownResultCode(code string) bool {
 }
 
 type Transaction struct {
-	ID                     uuid.UUID      `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
-	MerchantOrderID        string         `gorm:"type:varchar(255);unique;not null" json:"merchant_order_id"`
-	TenantID               uuid.UUID      `gorm:"type:uuid;not null;index" json:"tenant_id"`     // Cross-service
-	ParentID               uuid.UUID      `gorm:"type:uuid;not null;index" json:"parent_id"`     // Cross-service
-	StudentID              uuid.UUID      `gorm:"type:uuid;not null;index" json:"student_id"`    // Cross-service
-	EnrollmentID           uuid.UUID      `gorm:"type:uuid;not null;index" json:"enrollment_id"` // Cross-service
-	VoucherID              *uuid.UUID     `gorm:"type:uuid;index" json:"voucher_id,omitempty"`   // In-service
-	SubtotalAmount         int64          `gorm:"type:bigint;not null" json:"subtotal_amount"`
-	DiscountAmount         int64          `gorm:"type:bigint;not null;default:0" json:"discount_amount"`
-	GrossAmount            int64          `gorm:"type:bigint;not null" json:"gross_amount"`
-	PlatformFee            int64          `gorm:"type:bigint;not null" json:"platform_fee"`
-	PaymentGatewayFee      int64          `gorm:"type:bigint;not null;default:0" json:"payment_gateway_fee"`
-	NetAmount              int64          `gorm:"type:bigint;not null" json:"net_amount"`
-	SubscriptionID         *uuid.UUID     `gorm:"type:uuid;index" json:"subscription_id,omitempty"`
-	BillingPeriodStart     *time.Time     `gorm:"type:date;index" json:"billing_period_start,omitempty"`
-	Currency               string         `gorm:"type:varchar(50);not null;default:'IDR'" json:"currency"`
-	Status                 string         `gorm:"type:varchar(255);not null" json:"status"`
-	IsSandbox              bool           `gorm:"type:boolean;not null;default:false" json:"is_sandbox"`
-	PaymentGatewayProvider *string        `gorm:"type:varchar(255);default:'duitku'" json:"payment_gateway_provider,omitempty"`
-	PaymentMethod          *string        `gorm:"type:varchar(255)" json:"payment_method,omitempty"`
-	PaymentIntentID        *string        `gorm:"type:varchar(255);unique;index" json:"payment_intent_id,omitempty"`
-	CheckoutSessionURL     *string        `gorm:"type:text" json:"checkout_session_url,omitempty"`
-	BillingEmail           string         `gorm:"type:varchar(255)" json:"billing_email,omitempty"`
-	ClassName              string         `gorm:"type:varchar(255)" json:"class_name,omitempty"`
-	PaymentLinkSentAt      *time.Time     `gorm:"type:timestamp" json:"payment_link_sent_at,omitempty"`
-	PaidEmailSentAt        *time.Time     `gorm:"type:timestamp" json:"paid_email_sent_at,omitempty"`
-	FailedEmailSentAt      *time.Time     `gorm:"type:timestamp" json:"failed_email_sent_at,omitempty"`
-	LastReminderSentAt     *time.Time     `gorm:"type:timestamp" json:"last_reminder_sent_at,omitempty"`
-	ReminderCount          int            `gorm:"type:int;not null;default:0" json:"reminder_count"`
-	InvoiceExpiresAt       *time.Time     `gorm:"type:timestamp;index" json:"invoice_expires_at,omitempty"`
-	ExpiredAt              *time.Time     `gorm:"type:timestamp" json:"expired_at,omitempty"`
-	InvoiceClaimedAt       *time.Time     `gorm:"type:timestamp;index" json:"invoice_claimed_at,omitempty"`
-	InvoiceFailureReason   *string        `gorm:"type:text" json:"invoice_failure_reason,omitempty"`
-	PaidAt                 *time.Time     `gorm:"type:timestamp" json:"paid_at,omitempty"`
-	CreatedAt              time.Time      `gorm:"type:timestamp;not null;default:now()" json:"created_at"`
-	UpdatedAt              time.Time      `gorm:"type:timestamp;not null;default:now()" json:"updated_at"`
-	DeletedAt              gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
+	ID                uuid.UUID  `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	MerchantOrderID   string     `gorm:"type:varchar(255);unique;not null" json:"merchant_order_id"`
+	TenantID          uuid.UUID  `gorm:"type:uuid;not null;index" json:"tenant_id"`     // Cross-service
+	ParentID          uuid.UUID  `gorm:"type:uuid;not null;index" json:"parent_id"`     // Cross-service
+	StudentID         uuid.UUID  `gorm:"type:uuid;not null;index" json:"student_id"`    // Cross-service
+	EnrollmentID      uuid.UUID  `gorm:"type:uuid;not null;index" json:"enrollment_id"` // Cross-service
+	VoucherID         *uuid.UUID `gorm:"type:uuid;index" json:"voucher_id,omitempty"`   // In-service
+	SubtotalAmount    int64      `gorm:"type:bigint;not null" json:"subtotal_amount"`
+	DiscountAmount    int64      `gorm:"type:bigint;not null;default:0" json:"discount_amount"`
+	GrossAmount       int64      `gorm:"type:bigint;not null" json:"gross_amount"`
+	PlatformFee       int64      `gorm:"type:bigint;not null" json:"platform_fee"`
+	PaymentGatewayFee int64      `gorm:"type:bigint;not null;default:0" json:"payment_gateway_fee"`
+	NetAmount         int64      `gorm:"type:bigint;not null" json:"net_amount"`
+	// KEL-99 fee snapshot: the applied platform fee policy version, percent (bps),
+	// and fixed fee used to compute PlatformFee. NULL on transactions created
+	// before KEL-99, which never had a policy version. A database trigger keeps
+	// the snapshot and the amounts it produced immutable once written.
+	PlatformFeePolicyVersion *int64         `gorm:"type:bigint" json:"platform_fee_policy_version,omitempty"`
+	PlatformFeePercentBps    *int64         `gorm:"type:bigint" json:"platform_fee_percent_bps,omitempty"`
+	PlatformFeeFixed         *int64         `gorm:"column:platform_fee_fixed;type:bigint" json:"platform_fee_fixed,omitempty"`
+	SubscriptionID           *uuid.UUID     `gorm:"type:uuid;index" json:"subscription_id,omitempty"`
+	BillingPeriodStart       *time.Time     `gorm:"type:date;index" json:"billing_period_start,omitempty"`
+	Currency                 string         `gorm:"type:varchar(50);not null;default:'IDR'" json:"currency"`
+	Status                   string         `gorm:"type:varchar(255);not null" json:"status"`
+	IsSandbox                bool           `gorm:"type:boolean;not null;default:false" json:"is_sandbox"`
+	PaymentGatewayProvider   *string        `gorm:"type:varchar(255);default:'duitku'" json:"payment_gateway_provider,omitempty"`
+	PaymentMethod            *string        `gorm:"type:varchar(255)" json:"payment_method,omitempty"`
+	PaymentIntentID          *string        `gorm:"type:varchar(255);unique;index" json:"payment_intent_id,omitempty"`
+	CheckoutSessionURL       *string        `gorm:"type:text" json:"checkout_session_url,omitempty"`
+	BillingEmail             string         `gorm:"type:varchar(255)" json:"billing_email,omitempty"`
+	ClassName                string         `gorm:"type:varchar(255)" json:"class_name,omitempty"`
+	PaymentLinkSentAt        *time.Time     `gorm:"type:timestamp" json:"payment_link_sent_at,omitempty"`
+	PaidEmailSentAt          *time.Time     `gorm:"type:timestamp" json:"paid_email_sent_at,omitempty"`
+	FailedEmailSentAt        *time.Time     `gorm:"type:timestamp" json:"failed_email_sent_at,omitempty"`
+	LastReminderSentAt       *time.Time     `gorm:"type:timestamp" json:"last_reminder_sent_at,omitempty"`
+	ReminderCount            int            `gorm:"type:int;not null;default:0" json:"reminder_count"`
+	InvoiceExpiresAt         *time.Time     `gorm:"type:timestamp;index" json:"invoice_expires_at,omitempty"`
+	ExpiredAt                *time.Time     `gorm:"type:timestamp" json:"expired_at,omitempty"`
+	InvoiceClaimedAt         *time.Time     `gorm:"type:timestamp;index" json:"invoice_claimed_at,omitempty"`
+	InvoiceFailureReason     *string        `gorm:"type:text" json:"invoice_failure_reason,omitempty"`
+	PaidAt                   *time.Time     `gorm:"type:timestamp" json:"paid_at,omitempty"`
+	CreatedAt                time.Time      `gorm:"type:timestamp;not null;default:now()" json:"created_at"`
+	UpdatedAt                time.Time      `gorm:"type:timestamp;not null;default:now()" json:"updated_at"`
+	DeletedAt                gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
 
 	Voucher        *Voucher               `gorm:"foreignKey:VoucherID" json:"voucher,omitempty"`
 	Reconciliation *PaymentReconciliation `gorm:"foreignKey:TransactionID" json:"reconciliation,omitempty"`
@@ -161,19 +168,22 @@ type CancelEnrollmentPaymentRequest struct {
 }
 
 type GenerateSubscriptionPaymentRequest struct {
-	TenantID          uuid.UUID  `json:"tenant_id" binding:"required"`
-	StudentID         uuid.UUID  `json:"student_id" binding:"required"`
-	ClassID           uuid.UUID  `json:"class_id" binding:"required"`
-	EnrollmentID      uuid.UUID  `json:"enrollment_id" binding:"required"`
-	ParentID          uuid.UUID  `json:"parent_id" binding:"required"`
-	BillingCycle      string     `json:"billing_cycle" binding:"required,oneof=monthly quarterly yearly"`
-	VoucherID         *uuid.UUID `json:"voucher_id,omitempty"`
-	SubtotalAmount    int64      `json:"subtotal_amount" binding:"required,gt=0"`
-	DiscountAmount    int64      `json:"discount_amount" binding:"gte=0"`
-	PlatformFee       int64      `json:"platform_fee" binding:"gte=0"`
-	PaymentGatewayFee int64      `json:"payment_gateway_fee" binding:"gte=0"`
-	Title             string     `json:"title"`
-	SenderName        string     `json:"sender_name"`
+	TenantID       uuid.UUID  `json:"tenant_id" binding:"required"`
+	StudentID      uuid.UUID  `json:"student_id" binding:"required"`
+	ClassID        uuid.UUID  `json:"class_id" binding:"required"`
+	EnrollmentID   uuid.UUID  `json:"enrollment_id" binding:"required"`
+	ParentID       uuid.UUID  `json:"parent_id" binding:"required"`
+	BillingCycle   string     `json:"billing_cycle" binding:"required,oneof=monthly quarterly yearly"`
+	VoucherID      *uuid.UUID `json:"voucher_id,omitempty"`
+	SubtotalAmount int64      `json:"subtotal_amount" binding:"required,gt=0"`
+	DiscountAmount int64      `json:"discount_amount" binding:"gte=0"`
+	// PlatformFee is accepted for compatibility with existing callers but is
+	// ignored (KEL-99): billing computes the fee from the applied platform fee
+	// policy it reads from identity.
+	PlatformFee       int64  `json:"platform_fee" binding:"gte=0"`
+	PaymentGatewayFee int64  `json:"payment_gateway_fee" binding:"gte=0"`
+	Title             string `json:"title"`
+	SenderName        string `json:"sender_name"`
 	// SenderEmail is optional during the rollout. A non-empty value must be a real
 	// email address: the binding rejects anything else before any transaction or
 	// subscription row is written (KEL-75).
@@ -203,6 +213,9 @@ type TransactionResponse struct {
 	PlatformFee                 int64      `json:"platform_fee"`
 	PaymentGatewayFee           int64      `json:"payment_gateway_fee"`
 	NetAmount                   int64      `json:"net_amount"`
+	PlatformFeePolicyVersion    *int64     `json:"platform_fee_policy_version,omitempty"`
+	PlatformFeePercentBps       *int64     `json:"platform_fee_percent_bps,omitempty"`
+	PlatformFeeFixed            *int64     `json:"platform_fee_fixed,omitempty"`
 	Currency                    string     `json:"currency"`
 	Status                      string     `json:"status"`
 	PaymentGatewayProvider      string     `json:"payment_gateway_provider,omitempty"`

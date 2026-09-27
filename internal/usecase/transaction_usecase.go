@@ -32,6 +32,38 @@ type transactionUsecase struct {
 	txManager          repository.BillingTransactionManager
 	reconciliationRepo repository.PaymentReconciliationRepository
 	outcomeEmail       domain.EmailClient
+	// feePolicy reads identity's applied platform fee policy (KEL-99). A nil
+	// reader refuses every new transaction instead of charging 0%.
+	feePolicy domain.PlatformFeePolicyReader
+}
+
+// WithPlatformFeePolicy attaches the platform fee policy reader used for every
+// new transaction. Without it GenerateSubscriptionPayment fails closed.
+func WithPlatformFeePolicy(usecase TransactionUsecase, reader domain.PlatformFeePolicyReader) TransactionUsecase {
+	if concrete, ok := usecase.(*transactionUsecase); ok {
+		concrete.feePolicy = reader
+	}
+	return usecase
+}
+
+// newTransactionFees reads the applied platform fee policy and computes the fee
+// snapshot for a transaction that does not exist yet. It never falls back to a
+// 0% fee: a missing reader or any read error is ErrPlatformFeePolicyUnavailable.
+func newTransactionFees(ctx context.Context, reader domain.PlatformFeePolicyReader, gross, gatewayFee int64) (domain.PlatformFeeBreakdown, error) {
+	if reader == nil {
+		return domain.PlatformFeeBreakdown{}, domain.ErrPlatformFeePolicyUnavailable
+	}
+	policy, err := reader.AppliedPlatformFeePolicy(ctx)
+	if err != nil {
+		if errors.Is(err, domain.ErrPlatformFeePolicyUnavailable) {
+			return domain.PlatformFeeBreakdown{}, err
+		}
+		return domain.PlatformFeeBreakdown{}, fmt.Errorf("%w: %v", domain.ErrPlatformFeePolicyUnavailable, err)
+	}
+	if err := policy.Validate(); err != nil {
+		return domain.PlatformFeeBreakdown{}, err
+	}
+	return domain.ComputePlatformFee(policy, gross, gatewayFee)
 }
 
 func NewTransactionUsecase(
@@ -101,10 +133,12 @@ func (u *transactionUsecase) GetTransaction(ctx context.Context, id uuid.UUID) (
 
 func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, req *domain.GenerateSubscriptionPaymentRequest) (*domain.GenerateSubscriptionPaymentResponse, error) {
 	now := time.Now()
+	hasTransaction := false
 	if existing, err := u.txRepo.GetByEnrollmentID(ctx, req.EnrollmentID); err == nil {
 		if response, ok := reusableInvoiceResponse(existing, now); ok {
 			return response, nil
 		}
+		hasTransaction = true
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, fmt.Errorf("failed to find existing enrollment payment: %w", err)
 	}
@@ -113,9 +147,17 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 		return nil, fmt.Errorf("gross_amount must be greater than 0")
 	}
 
-	netAmount := grossAmount - req.PlatformFee - req.PaymentGatewayFee
-	if netAmount < 0 {
-		return nil, fmt.Errorf("fees cannot exceed gross_amount")
+	// KEL-99: the platform fee comes from identity's applied policy, never from
+	// req.PlatformFee. It is decided before anything is written, so a policy
+	// outage or a fee above the gross amount leaves no subscription or
+	// transaction behind. An enrollment that already has a transaction keeps the
+	// snapshot it was created with; its invoice is reissued unchanged.
+	var fees domain.PlatformFeeBreakdown
+	if !hasTransaction {
+		var err error
+		if fees, err = newTransactionFees(ctx, u.feePolicy, grossAmount, req.PaymentGatewayFee); err != nil {
+			return nil, err
+		}
 	}
 
 	title := req.Title
@@ -160,9 +202,7 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 		SubtotalAmount:         req.SubtotalAmount,
 		DiscountAmount:         req.DiscountAmount,
 		GrossAmount:            grossAmount,
-		PlatformFee:            req.PlatformFee,
 		PaymentGatewayFee:      req.PaymentGatewayFee,
-		NetAmount:              netAmount,
 		SubscriptionID:         &subscription.ID,
 		Currency:               "IDR",
 		Status:                 domain.TransactionStatusPending,
@@ -172,6 +212,7 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 		ClassName:              subscription.ClassName,
 	}
 	tx.BillingPeriodStart = &now
+	fees.Apply(tx)
 
 	existing, err := u.txRepo.GetByEnrollmentID(ctx, req.EnrollmentID)
 	ownsInvoice := false
@@ -201,6 +242,14 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 		}
 		ownsInvoice = true
 	case errors.Is(err, gorm.ErrRecordNotFound):
+		if hasTransaction {
+			// The row seen above vanished before this read, so no fee was decided
+			// yet; decide it now rather than inserting a transaction without one.
+			if fees, err = newTransactionFees(ctx, u.feePolicy, grossAmount, req.PaymentGatewayFee); err != nil {
+				return nil, err
+			}
+			fees.Apply(tx)
+		}
 		if createErr := u.txRepo.Create(ctx, tx); createErr != nil {
 			if current, getErr := u.txRepo.GetByEnrollmentID(ctx, req.EnrollmentID); getErr == nil {
 				tx = current
@@ -446,7 +495,7 @@ func transactionResponse(tx *domain.Transaction) *domain.TransactionResponse {
 	if tx.CheckoutSessionURL != nil {
 		checkout = *tx.CheckoutSessionURL
 	}
-	response := &domain.TransactionResponse{ID: tx.ID, MerchantOrderID: tx.MerchantOrderID, TenantID: tx.TenantID, ParentID: tx.ParentID, StudentID: tx.StudentID, EnrollmentID: tx.EnrollmentID, VoucherID: tx.VoucherID, SubtotalAmount: tx.SubtotalAmount, DiscountAmount: tx.DiscountAmount, GrossAmount: tx.GrossAmount, PlatformFee: tx.PlatformFee, PaymentGatewayFee: tx.PaymentGatewayFee, NetAmount: tx.NetAmount, Currency: tx.Currency, Status: tx.Status, PaymentGatewayProvider: provider, PaymentIntentID: intent, CheckoutSessionURL: checkout, InvoiceExpiresAt: tx.InvoiceExpiresAt, ExpiredAt: tx.ExpiredAt, PaidAt: tx.PaidAt, CreatedAt: tx.CreatedAt, UpdatedAt: tx.UpdatedAt}
+	response := &domain.TransactionResponse{ID: tx.ID, MerchantOrderID: tx.MerchantOrderID, TenantID: tx.TenantID, ParentID: tx.ParentID, StudentID: tx.StudentID, EnrollmentID: tx.EnrollmentID, VoucherID: tx.VoucherID, SubtotalAmount: tx.SubtotalAmount, DiscountAmount: tx.DiscountAmount, GrossAmount: tx.GrossAmount, PlatformFee: tx.PlatformFee, PaymentGatewayFee: tx.PaymentGatewayFee, NetAmount: tx.NetAmount, PlatformFeePolicyVersion: tx.PlatformFeePolicyVersion, PlatformFeePercentBps: tx.PlatformFeePercentBps, PlatformFeeFixed: tx.PlatformFeeFixed, Currency: tx.Currency, Status: tx.Status, PaymentGatewayProvider: provider, PaymentIntentID: intent, CheckoutSessionURL: checkout, InvoiceExpiresAt: tx.InvoiceExpiresAt, ExpiredAt: tx.ExpiredAt, PaidAt: tx.PaidAt, CreatedAt: tx.CreatedAt, UpdatedAt: tx.UpdatedAt}
 	if tx.Reconciliation != nil {
 		status := tx.Reconciliation.Status
 		if status == domain.ReconciliationStatusPending || status == domain.ReconciliationStatusProcessing {

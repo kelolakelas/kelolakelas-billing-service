@@ -65,8 +65,17 @@ func main() {
 	reconciliationRepo := repository.NewPaymentReconciliationRepository(db)
 
 	// Initialize Usecases
-	txUsecase := usecase.NewTransactionUsecaseWithReconciliation(txRepo, walletRepo, ledgerRepo, subscriptionRepo, duitkuClient, academicClient, cfg, txManager, reconciliationRepo, email.NewResendClient(cfg.ResendAPIKey, cfg.ResendFromEmail, time.Duration(cfg.ResendHTTPTimeoutSeconds)*time.Second))
-	worker := usecase.NewSubscriptionWorker(subscriptionRepo, txRepo, duitkuClient, email.NewResendClient(cfg.ResendAPIKey, cfg.ResendFromEmail, time.Duration(cfg.ResendHTTPTimeoutSeconds)*time.Second), cfg)
+	// The platform fee policy (KEL-99) is read from identity over the same gRPC
+	// host and timeout as permission checks. The client connects lazily; while
+	// identity is unreachable every new transaction is refused (fail closed).
+	feePolicyClient, err := identity.NewFeePolicyClient(cfg.IdentityGRPCHost, time.Duration(cfg.IdentityPermissionTimeoutMs)*time.Millisecond)
+	if err != nil {
+		slog.Error("Failed to initialize identity fee policy client", "error", err)
+		os.Exit(1)
+	}
+	defer feePolicyClient.Close()
+	txUsecase := usecase.WithPlatformFeePolicy(usecase.NewTransactionUsecaseWithReconciliation(txRepo, walletRepo, ledgerRepo, subscriptionRepo, duitkuClient, academicClient, cfg, txManager, reconciliationRepo, email.NewResendClient(cfg.ResendAPIKey, cfg.ResendFromEmail, time.Duration(cfg.ResendHTTPTimeoutSeconds)*time.Second)), feePolicyClient)
+	worker := usecase.NewSubscriptionWorker(subscriptionRepo, txRepo, duitkuClient, email.NewResendClient(cfg.ResendAPIKey, cfg.ResendFromEmail, time.Duration(cfg.ResendHTTPTimeoutSeconds)*time.Second), cfg).WithPlatformFeePolicy(feePolicyClient)
 	reconciliationWorker := usecase.NewPaymentReconciliationWorker(reconciliationRepo, academicClient, cfg)
 	// The expiry worker only needs the expiry capability; when the repository does
 	// not provide it the worker stays idle instead of failing startup.
