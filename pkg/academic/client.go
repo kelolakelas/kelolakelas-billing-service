@@ -29,6 +29,11 @@ type client struct {
 	httpClient *http.Client
 }
 
+// RequestTimeout bounds one call to Academic. Billing's HTTP server WriteTimeout is
+// validated against it at configuration load (KEL-71), because the Duitku webhook
+// activates the enrollment inline and a shorter write timeout would cut that response.
+const RequestTimeout = 10 * time.Second
+
 func NewClient(baseURL, credential string) Client {
 	if baseURL == "" {
 		baseURL = "http://localhost:8081"
@@ -37,7 +42,7 @@ func NewClient(baseURL, credential string) Client {
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		credential: credential,
 		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout: RequestTimeout,
 		},
 	}
 }

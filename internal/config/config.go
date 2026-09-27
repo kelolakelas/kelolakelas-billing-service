@@ -6,11 +6,13 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/spf13/viper"
 
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/domain"
+	"github.com/kelolakelas/kelolakelas-billing-service/pkg/academic"
 )
 
 type Config struct {
@@ -55,6 +57,12 @@ type Config struct {
 	// IdentityPermissionTimeoutMs bounds one permission check. When it elapses the read
 	// is refused with 503 instead of waiting on identity.
 	IdentityPermissionTimeoutMs int `mapstructure:"IDENTITY_PERMISSION_TIMEOUT_MS"`
+	// ServerReadHeaderTimeout, ServerReadTimeout, ServerWriteTimeout and
+	// ServerIdleTimeout configure the billing HTTP server in seconds (KEL-71).
+	ServerReadHeaderTimeout int `mapstructure:"SERVER_READ_HEADER_TIMEOUT_SECONDS"`
+	ServerReadTimeout       int `mapstructure:"SERVER_READ_TIMEOUT_SECONDS"`
+	ServerWriteTimeout      int `mapstructure:"SERVER_WRITE_TIMEOUT_SECONDS"`
+	ServerIdleTimeout       int `mapstructure:"SERVER_IDLE_TIMEOUT_SECONDS"`
 }
 
 // DefaultIdentityPermissionTimeoutMs is used when IDENTITY_PERMISSION_TIMEOUT_MS is
@@ -63,6 +71,25 @@ const DefaultIdentityPermissionTimeoutMs = 3000
 
 // Both provider calls have a finite bound even when the environment omits the knobs.
 const DefaultProviderHTTPTimeoutSeconds = 10
+
+// Defaults for the HTTP server timeouts, in seconds. They match the gateway, identity
+// and academic. A zero, negative, or unset value uses the default; zero never disables a
+// bound.
+const (
+	// DefaultServerReadHeaderTimeout closes a connection that stalls before sending its
+	// headers (slowloris). The Duitku webhook route is public.
+	DefaultServerReadHeaderTimeout = 5
+	// DefaultServerReadTimeout bounds reading the whole request, body included.
+	DefaultServerReadTimeout = 30
+	// DefaultServerWriteTimeout must exceed the longest outbound call; see
+	// applyServerTimeouts.
+	DefaultServerWriteTimeout = 60
+	// DefaultServerIdleTimeout bounds how long a kept-alive connection may sit idle.
+	DefaultServerIdleTimeout = 120
+)
+
+// maxDurationSeconds is the largest number of seconds a time.Duration can hold.
+const maxDurationSeconds = int(int64(1<<63-1) / int64(time.Second))
 
 func LoadConfig() (Config, error) {
 	if err := godotenv.Load(); err != nil {
@@ -83,6 +110,7 @@ func LoadConfig() (Config, error) {
 		"PORT", "DUITKU_API_BASE_URL", "DUITKU_HTTP_TIMEOUT_SECONDS", "RESEND_HTTP_TIMEOUT_SECONDS", "DUITKU_API_KEY", "DUITKU_MERCHANT_CODE",
 		"DUITKU_CALLBACK_URL", "DUITKU_RETURN_URL", "ACADEMIC_SERVICE_URL", "INTERNAL_SERVICE_CREDENTIAL", "JWT_SECRET",
 		"SUBSCRIPTION_WORKER_ENABLED", "SUBSCRIPTION_WORKER_INTERVAL_MINUTES", "SUBSCRIPTION_PAYMENT_REMINDER_INTERVAL_DAYS", "SUBSCRIPTION_PAYMENT_EXPIRY_PERIOD_DAYS", "PAYMENT_RECONCILIATION_WORKER_ENABLED", "PAYMENT_RECONCILIATION_WORKER_INTERVAL_MINUTES", "PAYMENT_RECONCILIATION_MAX_ATTEMPTS", "TRANSACTION_EXPIRY_WORKER_ENABLED", "TRANSACTION_EXPIRY_WORKER_INTERVAL_MINUTES", "TRANSACTION_CLAIM_TIMEOUT_MINUTES", "RESEND_API_KEY", "RESEND_FROM_EMAIL", "IDENTITY_GRPC_HOST", "IDENTITY_PERMISSION_TIMEOUT_MS",
+		"SERVER_READ_HEADER_TIMEOUT_SECONDS", "SERVER_READ_TIMEOUT_SECONDS", "SERVER_WRITE_TIMEOUT_SECONDS", "SERVER_IDLE_TIMEOUT_SECONDS",
 	} {
 		if err := viper.BindEnv(key); err != nil {
 			return Config{}, err
@@ -176,6 +204,9 @@ func LoadConfig() (Config, error) {
 	if config.IdentityPermissionTimeoutMs <= 0 {
 		config.IdentityPermissionTimeoutMs = DefaultIdentityPermissionTimeoutMs
 	}
+	if err := applyServerTimeouts(&config); err != nil {
+		return Config{}, err
+	}
 	if config.JWTSecret == "" {
 		return Config{}, fmt.Errorf("JWT_SECRET is required")
 	}
@@ -185,6 +216,74 @@ func LoadConfig() (Config, error) {
 	}
 
 	return config, nil
+}
+
+// applyServerTimeouts replaces non-positive server timeouts with their defaults, rejects
+// values too large to become a time.Duration, and requires the write timeout to exceed the
+// longest outbound wait a request may have. The Duitku webhook confirms the payment with
+// Duitku, sends the outcome email and activates the enrollment in Academic inline, so a
+// write timeout at or below that chain would cut a response still waiting on it.
+// Loading fails instead of clamping a value the operator set deliberately.
+//
+// Provider timeouts must already hold their defaults when this runs.
+func applyServerTimeouts(config *Config) error {
+	for _, timeout := range []struct {
+		key      string
+		value    *int
+		fallback int
+	}{
+		{"SERVER_READ_HEADER_TIMEOUT_SECONDS", &config.ServerReadHeaderTimeout, DefaultServerReadHeaderTimeout},
+		{"SERVER_READ_TIMEOUT_SECONDS", &config.ServerReadTimeout, DefaultServerReadTimeout},
+		{"SERVER_WRITE_TIMEOUT_SECONDS", &config.ServerWriteTimeout, DefaultServerWriteTimeout},
+		{"SERVER_IDLE_TIMEOUT_SECONDS", &config.ServerIdleTimeout, DefaultServerIdleTimeout},
+	} {
+		if *timeout.value <= 0 {
+			*timeout.value = timeout.fallback
+		}
+		if *timeout.value > maxDurationSeconds {
+			return fmt.Errorf("%s (%d) is too large for a duration", timeout.key, *timeout.value)
+		}
+	}
+	name, longest := config.LongestRequestOutboundTimeout()
+	if time.Duration(config.ServerWriteTimeout)*time.Second <= longest {
+		return fmt.Errorf("SERVER_WRITE_TIMEOUT_SECONDS (%d) must be greater than the longest outbound call timeout (%s: %s)",
+			config.ServerWriteTimeout, name, longest)
+	}
+	return nil
+}
+
+// LongestRequestOutboundTimeout returns the longest time one request can wait on
+// outbound calls, and where that bound comes from.
+//
+// The Duitku webhook makes three calls in sequence on the request context: the Duitku
+// payment status check, the Resend outcome email, and the Academic enrollment activation.
+// Its worst case is therefore their sum, which is at least the longest single call to
+// Duitku or Academic. Transaction reads make one identity permission check.
+func (c Config) LongestRequestOutboundTimeout() (string, time.Duration) {
+	webhook := saturatingAdd(saturatingAdd(secondsDuration(c.DuitkuHTTPTimeoutSeconds), secondsDuration(c.ResendHTTPTimeoutSeconds)), academic.RequestTimeout)
+	permission := time.Duration(c.IdentityPermissionTimeoutMs) * time.Millisecond
+	if permission > webhook {
+		return "IDENTITY_PERMISSION_TIMEOUT_MS", permission
+	}
+	return "Duitku webhook: DUITKU_HTTP_TIMEOUT_SECONDS + RESEND_HTTP_TIMEOUT_SECONDS + academic client timeout", webhook
+}
+
+const maxDuration = time.Duration(1<<63 - 1)
+
+// secondsDuration converts seconds to a duration, saturating instead of overflowing so a
+// huge provider timeout still compares as larger than any server timeout.
+func secondsDuration(seconds int) time.Duration {
+	if seconds > maxDurationSeconds {
+		return maxDuration
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+func saturatingAdd(a, b time.Duration) time.Duration {
+	if a > maxDuration-b {
+		return maxDuration
+	}
+	return a + b
 }
 
 func applyDatabaseURL(config *Config) error {
