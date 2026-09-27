@@ -158,6 +158,28 @@ definitions:
       requeued_at:
         type: string
     type: object
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.SalesSummary:
+    properties:
+      currency:
+        type: string
+      gross_amount:
+        type: integer
+      net_amount:
+        type: integer
+      transaction_count:
+        type: integer
+    type: object
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.SalesSummaryResponse:
+    properties:
+      from:
+        type: string
+      to:
+        type: string
+      totals:
+        items:
+          $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.SalesSummary'
+        type: array
+    type: object
   github_com_kelolakelas_kelolakelas-billing-service_internal_domain.TransactionListResponse:
     properties:
       items:
@@ -313,6 +335,57 @@ paths:
       security:
       - BearerAuth: []
       summary: Get billing transaction
+      tags:
+      - Billing
+  /api/v1/billing/transactions/summary:
+    get:
+      description: Tenant members with billing:read only; parents are forbidden. Dates
+        are inclusive YYYY-MM-DD UTC, at most 366 calendar days, defaulting to today
+        and the preceding 29 days.
+      parameters:
+      - description: First UTC paid date
+        in: query
+        name: from
+        type: string
+      - description: Last UTC paid date
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.SalesSummaryResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Summarize paid tenant sales by currency and UTC paid date
       tags:
       - Billing
   /api/v1/billing/webhooks/duitku:

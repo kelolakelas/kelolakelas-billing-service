@@ -117,6 +117,52 @@ func TestRequirePermissionUnlessParent(t *testing.T) {
 	}
 }
 
+// KEL-58: the sales summary is tenant-only. RequirePermission applies the same member
+// checks, but a parent token is refused before identity, even with tenant claims.
+func TestRequirePermissionRefusesParents(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tenantID, roleID, memberID := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	for _, tc := range []struct {
+		name       string
+		isParent   bool
+		allowed    bool
+		clientErr  error
+		wantStatus int
+		wantLookup bool
+	}{
+		{name: "parent with tenant claims", isParent: true, allowed: true, wantStatus: http.StatusForbidden},
+		{name: "member with billing:read", allowed: true, wantStatus: http.StatusNoContent, wantLookup: true},
+		{name: "member without billing:read", wantStatus: http.StatusForbidden, wantLookup: true},
+		{name: "identity error", clientErr: errors.New("down"), wantStatus: http.StatusServiceUnavailable, wantLookup: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := &permissionClientStub{allowed: tc.allowed, err: tc.clientErr}
+			router := gin.New()
+			router.Use(func(c *gin.Context) {
+				c.Set("tenant_id", tenantID)
+				c.Set("role_id", roleID)
+				c.Set("member_id", memberID)
+				c.Set("is_parent", tc.isParent)
+				c.Next()
+			})
+			called := false
+			router.GET("/summary", RequirePermission(stub, PermissionBillingRead), func(c *gin.Context) {
+				called = true
+				c.Status(http.StatusNoContent)
+			})
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/summary", nil))
+
+			if response.Code != tc.wantStatus || called != (tc.wantStatus == http.StatusNoContent) {
+				t.Fatalf("status=%d handler=%t, want %d", response.Code, called, tc.wantStatus)
+			}
+			if (stub.calls > 0) != tc.wantLookup {
+				t.Fatalf("identity lookups=%d, want lookup=%t", stub.calls, tc.wantLookup)
+			}
+		})
+	}
+}
+
 // KEL-80: AuthMiddleware must expose the verified member_id claim, and the permission
 // check must forward exactly that value; a client-supplied header cannot replace it.
 func TestAuthMiddlewareForwardsMemberIDToPermissionCheck(t *testing.T) {

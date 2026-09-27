@@ -57,6 +57,87 @@
                 }
             }
         },
+        "/api/v1/billing/transactions/summary": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Tenant members with billing:read only; parents are forbidden. Dates are inclusive YYYY-MM-DD UTC, at most 366 calendar days, defaulting to today and the preceding 29 days.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Billing"
+                ],
+                "summary": "Summarize paid tenant sales by currency and UTC paid date",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "First UTC paid date",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Last UTC paid date",
+                        "name": "to",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.SalesSummaryResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/billing/transactions/{id}": {
             "get": {
                 "security": [
@@ -637,6 +718,40 @@
                 },
                 "requeued_at": {
                     "type": "string"
+                }
+            }
+        },
+        "github_com_kelolakelas_kelolakelas-billing-service_internal_domain.SalesSummary": {
+            "type": "object",
+            "properties": {
+                "currency": {
+                    "type": "string"
+                },
+                "gross_amount": {
+                    "type": "integer"
+                },
+                "net_amount": {
+                    "type": "integer"
+                },
+                "transaction_count": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_kelolakelas_kelolakelas-billing-service_internal_domain.SalesSummaryResponse": {
+            "type": "object",
+            "properties": {
+                "from": {
+                    "type": "string"
+                },
+                "to": {
+                    "type": "string"
+                },
+                "totals": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.SalesSummary"
+                    }
                 }
             }
         },

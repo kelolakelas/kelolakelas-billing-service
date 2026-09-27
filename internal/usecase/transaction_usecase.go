@@ -550,6 +550,14 @@ func (u *transactionUsecase) cancelUnpaidTransaction(ctx context.Context, id uui
 	return true, nil
 }
 
+func (u *transactionUsecase) SalesSummary(ctx context.Context, tenantID uuid.UUID, from, until time.Time) ([]domain.SalesSummary, error) {
+	repo, ok := u.txRepo.(repository.SalesSummaryRepository)
+	if !ok {
+		return nil, fmt.Errorf("sales summary repository unavailable")
+	}
+	return repo.SummarizePaid(ctx, tenantID, from, until)
+}
+
 func (u *transactionUsecase) List(ctx context.Context, tenantID, parentID *uuid.UUID, query domain.TransactionQuery) (*domain.TransactionListResponse, error) {
 	if query.Page < 1 {
 		query.Page = 1

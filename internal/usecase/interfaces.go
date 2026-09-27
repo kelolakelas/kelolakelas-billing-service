@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -24,6 +25,7 @@ type TransactionUsecase interface {
 	CancelEnrollmentPayment(ctx context.Context, enrollmentID uuid.UUID) (*domain.TransactionResponse, error)
 	HandleDuitkuWebhook(ctx context.Context, payload *domain.DuitkuCallbackPayload) error
 	List(ctx context.Context, tenantID, parentID *uuid.UUID, query domain.TransactionQuery) (*domain.TransactionListResponse, error)
+	SalesSummary(ctx context.Context, tenantID uuid.UUID, from, until time.Time) ([]domain.SalesSummary, error)
 	GetByIDScoped(ctx context.Context, tenantID, parentID *uuid.UUID, id uuid.UUID) (*domain.TransactionResponse, error)
 }
 

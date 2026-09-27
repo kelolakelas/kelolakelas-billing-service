@@ -13,6 +13,7 @@ import (
 type routeHandlers struct {
 	duitkuWebhook          gin.HandlerFunc
 	listTransactions       gin.HandlerFunc
+	salesSummary           gin.HandlerFunc
 	getTransaction         gin.HandlerFunc
 	generateInternal       gin.HandlerFunc
 	cancelInternal         gin.HandlerFunc
@@ -33,6 +34,7 @@ func registerRoutes(r gin.IRouter, h routeHandlers, jwtSecret, internalCredentia
 	protected.Use(middleware.AuthMiddleware(jwtSecret))
 	readTransactions := middleware.RequirePermissionUnlessParent(permissions, middleware.PermissionBillingRead)
 	protected.GET("/transactions", readTransactions, h.listTransactions)
+	protected.GET("/transactions/summary", middleware.RequirePermission(permissions, middleware.PermissionBillingRead), h.salesSummary)
 	protected.GET("/transactions/:id", readTransactions, h.getTransaction)
 
 	internal := r.Group("/internal/billing")

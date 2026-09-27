@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -29,7 +30,10 @@ type transactionUsecaseStub struct {
 	lastQuery domain.TransactionQuery
 	// lastSenderEmail records the sender_email the generate handler forwarded, so the
 	// tests can prove binding validation and forwarding in one place.
-	lastSenderEmail string
+	lastSenderEmail           string
+	summaryTenant             uuid.UUID
+	summaryFrom, summaryUntil time.Time
+	summary                   []domain.SalesSummary
 }
 
 func (s *transactionUsecaseStub) CreateTransaction(context.Context, *domain.Transaction) error {
@@ -59,6 +63,13 @@ func (s *transactionUsecaseStub) HandleDuitkuWebhook(context.Context, *domain.Du
 func (s *transactionUsecaseStub) List(_ context.Context, _, _ *uuid.UUID, query domain.TransactionQuery) (*domain.TransactionListResponse, error) {
 	s.lastQuery = query
 	return &domain.TransactionListResponse{}, nil
+}
+
+func (s *transactionUsecaseStub) SalesSummary(_ context.Context, tenantID uuid.UUID, from, until time.Time) ([]domain.SalesSummary, error) {
+	s.calls++
+	s.summaryTenant = tenantID
+	s.summaryFrom, s.summaryUntil = from, until
+	return s.summary, s.err
 }
 
 func (s *transactionUsecaseStub) GetByIDScoped(context.Context, *uuid.UUID, *uuid.UUID, uuid.UUID) (*domain.TransactionResponse, error) {

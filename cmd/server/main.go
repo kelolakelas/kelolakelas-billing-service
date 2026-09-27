@@ -109,6 +109,7 @@ func main() {
 	registerRoutes(r, routeHandlers{
 		duitkuWebhook:          txHandler.HandleDuitkuWebhook,
 		listTransactions:       txHandler.List,
+		salesSummary:           txHandler.SalesSummary,
 		getTransaction:         txHandler.Get,
 		generateInternal:       txHandler.GenerateInternalSubscriptionPayment,
 		cancelInternal:         txHandler.CancelInternalEnrollmentPayment,
