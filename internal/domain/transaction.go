@@ -222,6 +222,20 @@ type TransactionResponse struct {
 	ReconciliationNextAttemptAt *time.Time `json:"reconciliation_next_attempt_at,omitempty"`
 }
 
+// SalesSummary is one currency bucket; amounts of different currencies must never be added.
+type SalesSummary struct {
+	Currency         string `json:"currency" gorm:"column:currency"`
+	TransactionCount int64  `json:"transaction_count" gorm:"column:transaction_count"`
+	GrossAmount      int64  `json:"gross_amount" gorm:"column:gross_amount"`
+	NetAmount        int64  `json:"net_amount" gorm:"column:net_amount"`
+}
+
+type SalesSummaryResponse struct {
+	From   string         `json:"from"`
+	To     string         `json:"to"`
+	Totals []SalesSummary `json:"totals"`
+}
+
 type TransactionQuery struct {
 	Page         int
 	PageSize     int

@@ -97,6 +97,63 @@ func (h *TransactionHandler) List(c *gin.Context) {
 	c.JSON(200, gin.H{"status": "success", "message": "Transactions fetched successfully", "data": result})
 }
 
+// SalesSummary godoc
+// @Summary Summarize paid tenant sales by currency and UTC paid date
+// @Description Tenant members with billing:read only; parents are forbidden. Dates are inclusive YYYY-MM-DD UTC, at most 366 calendar days, defaulting to today and the preceding 29 days.
+// @Tags Billing
+// @Produce json
+// @Security BearerAuth
+// @Param from query string false "First UTC paid date"
+// @Param to query string false "Last UTC paid date"
+// @Success 200 {object} domain.HTTPResponse{data=domain.SalesSummaryResponse}
+// @Failure 400 {object} domain.ErrorResponse
+// @Failure 401 {object} domain.ErrorResponse
+// @Failure 403 {object} domain.ErrorResponse
+// @Failure 500 {object} domain.ErrorResponse
+// @Failure 503 {object} domain.ErrorResponse
+// @Router /api/v1/billing/transactions/summary [get]
+func (h *TransactionHandler) SalesSummary(c *gin.Context) {
+	if c.GetBool("is_parent") {
+		c.JSON(http.StatusForbidden, gin.H{"status": "error", "message": "Permission denied", "data": nil})
+		return
+	}
+	tenantID, err := uuid.Parse(c.GetString("tenant_id"))
+	if err != nil || tenantID == uuid.Nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"status": "error", "message": "Invalid tenant context", "data": nil})
+		return
+	}
+	// Date-only parameters use UTC calendar days, independent of server timezone.
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	from, to := today.AddDate(0, 0, -29), today
+	if raw, present := c.GetQuery("from"); present {
+		from, err = time.Parse("2006-01-02", raw)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Invalid sales summary range", "data": nil})
+			return
+		}
+	}
+	if raw, present := c.GetQuery("to"); present {
+		to, err = time.Parse("2006-01-02", raw)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Invalid sales summary range", "data": nil})
+			return
+		}
+	}
+	if from.After(to) || to.AddDate(0, 0, 1).Sub(from) > 366*24*time.Hour {
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Invalid sales summary range", "data": nil})
+		return
+	}
+	totals, err := h.txUsecase.SalesSummary(c.Request.Context(), tenantID, from, to.AddDate(0, 0, 1))
+	if err != nil {
+		slog.ErrorContext(c.Request.Context(), "sales summary failed", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "Failed to fetch sales summary", "data": nil})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "success", "message": "Sales summary fetched successfully", "data": domain.SalesSummaryResponse{
+		From: from.Format("2006-01-02"), To: to.Format("2006-01-02"), Totals: totals,
+	}})
+}
+
 // Get godoc
 // @Summary Get billing transaction
 // @Description Same authorization as the list: parents read their own transaction, tenant members need `billing:read` (403 without it, 503 while identity cannot be asked).

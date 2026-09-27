@@ -104,6 +104,19 @@ func (r *transactionRepository) List(ctx context.Context, tenantID, parentID *uu
 	return items, total, err
 }
 
+// SummarizePaid restricts both the tenant and the half-open UTC paid_at interval in SQL.
+func (r *transactionRepository) SummarizePaid(ctx context.Context, tenantID uuid.UUID, from, until time.Time) ([]domain.SalesSummary, error) {
+	var totals []domain.SalesSummary
+	err := r.db.WithContext(ctx).Model(&domain.Transaction{}).
+		Select("currency, COUNT(*) AS transaction_count, COALESCE(SUM(gross_amount), 0) AS gross_amount, COALESCE(SUM(net_amount), 0) AS net_amount").
+		Where("tenant_id = ? AND status = ? AND paid_at >= ? AND paid_at < ?", tenantID, domain.TransactionStatusPaid, from, until).
+		Group("currency").Order("currency").Scan(&totals).Error
+	if totals == nil {
+		totals = []domain.SalesSummary{}
+	}
+	return totals, err
+}
+
 func (r *transactionRepository) Update(ctx context.Context, transaction *domain.Transaction) error {
 	return r.getDB(ctx).Save(transaction).Error
 }

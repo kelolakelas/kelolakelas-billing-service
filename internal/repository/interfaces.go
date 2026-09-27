@@ -56,6 +56,11 @@ type TransactionRepository interface {
 	Update(ctx context.Context, transaction *domain.Transaction) error
 }
 
+// SalesSummaryRepository is separate so legacy transaction test doubles need not implement it.
+type SalesSummaryRepository interface {
+	SummarizePaid(ctx context.Context, tenantID uuid.UUID, from, until time.Time) ([]domain.SalesSummary, error)
+}
+
 type TransactionLockingRepository interface {
 	GetByIDForUpdate(ctx context.Context, id uuid.UUID) (*domain.Transaction, error)
 	// ClaimInvoice and ClaimReinvoice take exclusive ownership of creating an invoice

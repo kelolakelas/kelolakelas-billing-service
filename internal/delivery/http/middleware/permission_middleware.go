@@ -14,6 +14,23 @@ import (
 // tenant's transactions. Identity seeds it for the Creator role only.
 const PermissionBillingRead = "billing:read"
 
+// RequirePermission guards tenant-only reads: parent credentials cannot be used even
+// when they carry a tenant claim, and cannot reach identity or the handler.
+func RequirePermission(client identity.PermissionClient, permission string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.GetBool("is_parent") {
+			permissionFailure(c, http.StatusForbidden)
+			c.Abort()
+			return
+		}
+		if !permissionAllowed(c, client, permission) {
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
 // RequirePermissionUnlessParent guards the transaction reads, which serve both tenant
 // members and parents (KEL-57, ADR 0024). A parent token carries ownership rather than
 // a role, so the handler's `parent_id` scope stays the only authority for that caller
