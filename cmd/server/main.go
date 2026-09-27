@@ -117,7 +117,9 @@ func main() {
 		requeueReconciliations: reconciliationHandler.RequeueTerminalFailedReconciliations,
 	}, cfg.JWTSecret, cfg.InternalServiceCredential, permissionClient)
 
-	server := &http.Server{Addr: "0.0.0.0:" + cfg.Port, Handler: r}
+	server := newHTTPServer(cfg, r)
+	// The workers and the HTTP server stop on the same signal context; KEL-71 only
+	// bounded the server's connections and left this lifecycle unchanged.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	if cfg.SubscriptionWorkerEnabled {
@@ -129,7 +131,13 @@ func main() {
 	if cfg.TransactionExpiryWorkerEnabled {
 		go expiryWorker.Run(ctx)
 	}
-	slog.Info("Starting billing service", "port", cfg.Port)
+	slog.Info("Starting billing service",
+		"port", cfg.Port,
+		"server_read_header_timeout_seconds", cfg.ServerReadHeaderTimeout,
+		"server_read_timeout_seconds", cfg.ServerReadTimeout,
+		"server_write_timeout_seconds", cfg.ServerWriteTimeout,
+		"server_idle_timeout_seconds", cfg.ServerIdleTimeout,
+	)
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("Failed to start billing service", "error", err)

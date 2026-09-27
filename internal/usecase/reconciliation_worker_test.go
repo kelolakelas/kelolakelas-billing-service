@@ -121,6 +121,22 @@ func TestPaymentReconciliationWorkerPersistsRetryFailure(t *testing.T) {
 	}
 }
 
+// KEL-71 regression: the reconciliation worker still stops through the shared signal
+// context. The context is cancelled after the first pass, while Run waits on its ticker.
+func TestPaymentReconciliationWorkerStopsWhenContextIsCanceled(t *testing.T) {
+	repo := &reconciliationRepoStub{}
+	worker := NewPaymentReconciliationWorker(repo, &academicActivationStub{}, reconciliationConfig(), reconciliationClock{now: time.Unix(100, 0)})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { worker.Run(ctx); close(done) }()
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("reconciliation worker did not stop after its context was canceled")
+	}
+}
+
 func TestReconciliationBackoffIsCapped(t *testing.T) {
 	if got := reconciliationBackoff(1); got != 5*time.Minute {
 		t.Fatalf("first backoff=%s", got)
