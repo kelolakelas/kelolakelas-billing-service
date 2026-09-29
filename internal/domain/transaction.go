@@ -13,6 +13,7 @@ var (
 	ErrTransactionNotFound      = errors.New("transaction not found")
 	ErrTransactionAlreadyPaid   = errors.New("transaction already paid")
 	ErrInvalidTransactionStatus = errors.New("invalid transaction status")
+	ErrInvalidPaymentMethod     = errors.New("invalid payment method")
 )
 
 // Transaction status values. `expired` is terminal for unpaid invoices: a later
@@ -182,6 +183,7 @@ type GenerateSubscriptionPaymentRequest struct {
 	// policy it reads from identity.
 	PlatformFee       int64  `json:"platform_fee" binding:"gte=0"`
 	PaymentGatewayFee int64  `json:"payment_gateway_fee" binding:"gte=0"`
+	PaymentMethod     string `json:"payment_method,omitempty" binding:"omitempty,oneof=VC VA BC SP NQ"`
 	Title             string `json:"title"`
 	SenderName        string `json:"sender_name"`
 	// SenderEmail is optional during the rollout. A non-empty value must be a real

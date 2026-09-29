@@ -614,6 +614,16 @@ const docTemplate = `{
                     "type": "integer",
                     "minimum": 0
                 },
+                "payment_method": {
+                    "type": "string",
+                    "enum": [
+                        "VC",
+                        "VA",
+                        "BC",
+                        "SP",
+                        "NQ"
+                    ]
+                },
                 "platform_fee": {
                     "description": "PlatformFee is accepted for compatibility with existing callers but is\nignored (KEL-99): billing computes the fee from the applied platform fee\npolicy it reads from identity.",
                     "type": "integer",

@@ -277,6 +277,10 @@ func (h *TransactionHandler) generateSubscriptionPayment(c *gin.Context) {
 	}
 
 	resp, err := h.txUsecase.GenerateSubscriptionPayment(c.Request.Context(), &req)
+	if errors.Is(err, domain.ErrInvalidPaymentMethod) {
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": err.Error(), "data": nil})
+		return
+	}
 	if errors.Is(err, domain.ErrPlatformFeeExceedsGross) {
 		// KEL-99: a stable machine-readable code so callers can tell this apart
 		// from other validation failures. No record was written.
