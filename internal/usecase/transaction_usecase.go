@@ -146,6 +146,7 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 	hasTransaction := false
 	if existing, err := u.txRepo.GetByEnrollmentID(ctx, req.EnrollmentID); err == nil {
 		if response, ok := reusableInvoiceResponse(existing, now); ok {
+			u.dispatchPrivatePaymentEmail(ctx, existing.ID)
 			return response, nil
 		}
 		hasTransaction = true
@@ -219,6 +220,7 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 		IsSandbox:              strings.Contains(strings.ToLower(u.cfg.DuitkuAPIBaseURL), "sandbox"),
 		PaymentGatewayProvider: &provider,
 		BillingEmail:           req.SenderEmail,
+		PrivateScheduleRequest: req.PrivateScheduleRequest,
 		ClassName:              subscription.ClassName,
 		PaymentMethod:          &paymentMethod,
 	}
@@ -361,6 +363,7 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 		return nil, err
 	}
 
+	u.dispatchPrivatePaymentEmail(ctx, tx.ID)
 	return &domain.GenerateSubscriptionPaymentResponse{
 		TransactionID:      tx.ID,
 		CheckoutSessionURL: invoice.PaymentURL,
@@ -393,6 +396,9 @@ func (u *transactionUsecase) markInvoiceIssued(ctx context.Context, tx *domain.T
 	setPaymentInstructions(tx, invoice)
 	tx.InvoiceClaimedAt = nil
 	tx.InvoiceFailureReason = nil
+	tx.PrivatePaymentEmailClaimedAt = nil
+	tx.PrivatePaymentEmailSentAt = nil
+	tx.PrivatePaymentEmailFailureReason = nil
 	tx.UpdatedAt = now
 	if err := u.txRepo.Update(ctx, tx); err != nil {
 		return false, fmt.Errorf("failed to save Duitku payment details: %w", err)

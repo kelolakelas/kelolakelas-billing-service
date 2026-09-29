@@ -129,36 +129,40 @@ type Transaction struct {
 	// and fixed fee used to compute PlatformFee. NULL on transactions created
 	// before KEL-99, which never had a policy version. A database trigger keeps
 	// the snapshot and the amounts it produced immutable once written.
-	PlatformFeePolicyVersion *int64         `gorm:"type:bigint" json:"platform_fee_policy_version,omitempty"`
-	PlatformFeePercentBps    *int64         `gorm:"type:bigint" json:"platform_fee_percent_bps,omitempty"`
-	PlatformFeeFixed         *int64         `gorm:"column:platform_fee_fixed;type:bigint" json:"platform_fee_fixed,omitempty"`
-	SubscriptionID           *uuid.UUID     `gorm:"type:uuid;index" json:"subscription_id,omitempty"`
-	BillingPeriodStart       *time.Time     `gorm:"type:date;index" json:"billing_period_start,omitempty"`
-	Currency                 string         `gorm:"type:varchar(50);not null;default:'IDR'" json:"currency"`
-	Status                   string         `gorm:"type:varchar(255);not null" json:"status"`
-	IsSandbox                bool           `gorm:"type:boolean;not null;default:false" json:"is_sandbox"`
-	PaymentGatewayProvider   *string        `gorm:"type:varchar(255);default:'duitku'" json:"payment_gateway_provider,omitempty"`
-	PaymentMethod            *string        `gorm:"type:varchar(255)" json:"payment_method,omitempty"`
-	PaymentIntentID          *string        `gorm:"type:varchar(255);unique;index" json:"payment_intent_id,omitempty"`
-	CheckoutSessionURL       *string        `gorm:"type:text" json:"checkout_session_url,omitempty"`
-	VANumber                 *string        `gorm:"type:text" json:"-"`
-	QRString                 *string        `gorm:"type:text" json:"-"`
-	AppURL                   *string        `gorm:"type:text" json:"-"`
-	BillingEmail             string         `gorm:"type:varchar(255)" json:"billing_email,omitempty"`
-	ClassName                string         `gorm:"type:varchar(255)" json:"class_name,omitempty"`
-	PaymentLinkSentAt        *time.Time     `gorm:"type:timestamp" json:"payment_link_sent_at,omitempty"`
-	PaidEmailSentAt          *time.Time     `gorm:"type:timestamp" json:"paid_email_sent_at,omitempty"`
-	FailedEmailSentAt        *time.Time     `gorm:"type:timestamp" json:"failed_email_sent_at,omitempty"`
-	LastReminderSentAt       *time.Time     `gorm:"type:timestamp" json:"last_reminder_sent_at,omitempty"`
-	ReminderCount            int            `gorm:"type:int;not null;default:0" json:"reminder_count"`
-	InvoiceExpiresAt         *time.Time     `gorm:"type:timestamp;index" json:"invoice_expires_at,omitempty"`
-	ExpiredAt                *time.Time     `gorm:"type:timestamp" json:"expired_at,omitempty"`
-	InvoiceClaimedAt         *time.Time     `gorm:"type:timestamp;index" json:"invoice_claimed_at,omitempty"`
-	InvoiceFailureReason     *string        `gorm:"type:text" json:"invoice_failure_reason,omitempty"`
-	PaidAt                   *time.Time     `gorm:"type:timestamp" json:"paid_at,omitempty"`
-	CreatedAt                time.Time      `gorm:"type:timestamp;not null;default:now()" json:"created_at"`
-	UpdatedAt                time.Time      `gorm:"type:timestamp;not null;default:now()" json:"updated_at"`
-	DeletedAt                gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
+	PlatformFeePolicyVersion         *int64         `gorm:"type:bigint" json:"platform_fee_policy_version,omitempty"`
+	PlatformFeePercentBps            *int64         `gorm:"type:bigint" json:"platform_fee_percent_bps,omitempty"`
+	PlatformFeeFixed                 *int64         `gorm:"column:platform_fee_fixed;type:bigint" json:"platform_fee_fixed,omitempty"`
+	SubscriptionID                   *uuid.UUID     `gorm:"type:uuid;index" json:"subscription_id,omitempty"`
+	BillingPeriodStart               *time.Time     `gorm:"type:date;index" json:"billing_period_start,omitempty"`
+	Currency                         string         `gorm:"type:varchar(50);not null;default:'IDR'" json:"currency"`
+	Status                           string         `gorm:"type:varchar(255);not null" json:"status"`
+	IsSandbox                        bool           `gorm:"type:boolean;not null;default:false" json:"is_sandbox"`
+	PaymentGatewayProvider           *string        `gorm:"type:varchar(255);default:'duitku'" json:"payment_gateway_provider,omitempty"`
+	PaymentMethod                    *string        `gorm:"type:varchar(255)" json:"payment_method,omitempty"`
+	PaymentIntentID                  *string        `gorm:"type:varchar(255);unique;index" json:"payment_intent_id,omitempty"`
+	CheckoutSessionURL               *string        `gorm:"type:text" json:"checkout_session_url,omitempty"`
+	VANumber                         *string        `gorm:"type:text" json:"-"`
+	QRString                         *string        `gorm:"type:text" json:"-"`
+	AppURL                           *string        `gorm:"type:text" json:"-"`
+	BillingEmail                     string         `gorm:"type:varchar(255)" json:"billing_email,omitempty"`
+	PrivateScheduleRequest           bool           `gorm:"not null;default:false" json:"-"`
+	PrivatePaymentEmailClaimedAt     *time.Time     `gorm:"type:timestamp" json:"-"`
+	PrivatePaymentEmailSentAt        *time.Time     `gorm:"type:timestamp" json:"-"`
+	PrivatePaymentEmailFailureReason *string        `gorm:"type:text" json:"-"`
+	ClassName                        string         `gorm:"type:varchar(255)" json:"class_name,omitempty"`
+	PaymentLinkSentAt                *time.Time     `gorm:"type:timestamp" json:"payment_link_sent_at,omitempty"`
+	PaidEmailSentAt                  *time.Time     `gorm:"type:timestamp" json:"paid_email_sent_at,omitempty"`
+	FailedEmailSentAt                *time.Time     `gorm:"type:timestamp" json:"failed_email_sent_at,omitempty"`
+	LastReminderSentAt               *time.Time     `gorm:"type:timestamp" json:"last_reminder_sent_at,omitempty"`
+	ReminderCount                    int            `gorm:"type:int;not null;default:0" json:"reminder_count"`
+	InvoiceExpiresAt                 *time.Time     `gorm:"type:timestamp;index" json:"invoice_expires_at,omitempty"`
+	ExpiredAt                        *time.Time     `gorm:"type:timestamp" json:"expired_at,omitempty"`
+	InvoiceClaimedAt                 *time.Time     `gorm:"type:timestamp;index" json:"invoice_claimed_at,omitempty"`
+	InvoiceFailureReason             *string        `gorm:"type:text" json:"invoice_failure_reason,omitempty"`
+	PaidAt                           *time.Time     `gorm:"type:timestamp" json:"paid_at,omitempty"`
+	CreatedAt                        time.Time      `gorm:"type:timestamp;not null;default:now()" json:"created_at"`
+	UpdatedAt                        time.Time      `gorm:"type:timestamp;not null;default:now()" json:"updated_at"`
+	DeletedAt                        gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
 
 	Voucher        *Voucher               `gorm:"foreignKey:VoucherID" json:"voucher,omitempty"`
 	Reconciliation *PaymentReconciliation `gorm:"foreignKey:TransactionID" json:"reconciliation,omitempty"`
@@ -193,7 +197,9 @@ type GenerateSubscriptionPaymentRequest struct {
 	// email address: the binding rejects anything else before any transaction or
 	// subscription row is written (KEL-75).
 	SenderEmail string `json:"sender_email" binding:"omitempty,email"`
-	SenderPhone string `json:"sender_phone"`
+	// Only the academic private approval caller sets this; it is not an email destination.
+	PrivateScheduleRequest bool   `json:"private_schedule_request,omitempty"`
+	SenderPhone            string `json:"sender_phone"`
 }
 
 type GenerateSubscriptionPaymentResponse struct {

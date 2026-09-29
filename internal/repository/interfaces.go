@@ -95,6 +95,15 @@ type TransactionLockingRepository interface {
 	MarkInvoiceIssued(ctx context.Context, id uuid.UUID, invoice *domain.CreateInvoiceResponse, expiresAt time.Time) (bool, error)
 }
 
+// PrivatePaymentEmailRepository is separate from renewal claims. The claim and
+// completion updates are conditional, so concurrent dispatchers cannot overwrite
+// a settled payment or another worker's claim.
+type PrivatePaymentEmailRepository interface {
+	ListPrivatePaymentEmails(ctx context.Context, now time.Time, limit int) ([]domain.Transaction, error)
+	ClaimPrivatePaymentEmail(ctx context.Context, id uuid.UUID, now time.Time, timeout time.Duration) (bool, error)
+	FinishPrivatePaymentEmail(ctx context.Context, id uuid.UUID, claimedAt time.Time, failure string) (bool, error)
+}
+
 // TransactionExpiryRepository expires unpaid transactions whose invoice validity
 // window has passed. ExpireDue must be safe to run concurrently from several
 // replicas: rows are claimed with a single conditional update so a transaction

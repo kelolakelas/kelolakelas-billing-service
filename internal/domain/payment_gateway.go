@@ -51,6 +51,7 @@ type PaymentGateway interface {
 
 type EmailMessage struct {
 	To, Subject, HTML string
+	IdempotencyKey    string
 }
 
 type EmailClient interface {
