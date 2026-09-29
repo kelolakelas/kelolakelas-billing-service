@@ -74,7 +74,8 @@ func main() {
 		os.Exit(1)
 	}
 	defer feePolicyClient.Close()
-	txUsecase := usecase.WithPlatformFeePolicy(usecase.NewTransactionUsecaseWithReconciliation(txRepo, walletRepo, ledgerRepo, subscriptionRepo, duitkuClient, academicClient, cfg, txManager, reconciliationRepo, email.NewResendClient(cfg.ResendAPIKey, cfg.ResendFromEmail, time.Duration(cfg.ResendHTTPTimeoutSeconds)*time.Second)), feePolicyClient)
+	emailClient := email.NewResendClient(cfg.ResendAPIKey, cfg.ResendFromEmail, time.Duration(cfg.ResendHTTPTimeoutSeconds)*time.Second)
+	txUsecase := usecase.WithPlatformFeePolicy(usecase.NewTransactionUsecaseWithReconciliation(txRepo, walletRepo, ledgerRepo, subscriptionRepo, duitkuClient, academicClient, cfg, txManager, reconciliationRepo, emailClient), feePolicyClient)
 	worker := usecase.NewSubscriptionWorker(subscriptionRepo, txRepo, duitkuClient, email.NewResendClient(cfg.ResendAPIKey, cfg.ResendFromEmail, time.Duration(cfg.ResendHTTPTimeoutSeconds)*time.Second), cfg).WithPlatformFeePolicy(feePolicyClient)
 	reconciliationWorker := usecase.NewPaymentReconciliationWorker(reconciliationRepo, academicClient, cfg)
 	// The expiry worker only needs the expiry capability; when the repository does
@@ -131,6 +132,7 @@ func main() {
 	// bounded the server's connections and left this lifecycle unchanged.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	go usecase.RunPrivatePaymentEmails(ctx, txRepo, emailClient, time.Minute)
 	if cfg.SubscriptionWorkerEnabled {
 		go worker.Run(ctx)
 	}

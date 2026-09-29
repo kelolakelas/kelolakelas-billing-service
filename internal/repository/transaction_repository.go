@@ -368,17 +368,20 @@ func (r *transactionRepository) MarkInvoiceIssued(ctx context.Context, id uuid.U
 	result := r.getDB(ctx).Model(&domain.Transaction{}).
 		Where("id = ? AND status IN ?", id, []string{domain.TransactionStatusCreating, domain.TransactionStatusPending}).
 		Updates(map[string]interface{}{
-			"status":                 domain.TransactionStatusPending,
-			"expired_at":             nil,
-			"invoice_expires_at":     expiresAt,
-			"checkout_session_url":   invoice.PaymentURL,
-			"payment_intent_id":      invoice.Reference,
-			"va_number":              nullableInstruction(invoice.VANumber),
-			"qr_string":              nullableInstruction(invoice.QRString),
-			"app_url":                nullableInstruction(invoice.AppURL),
-			"invoice_claimed_at":     nil,
-			"invoice_failure_reason": nil,
-			"updated_at":             time.Now(),
+			"status":                               domain.TransactionStatusPending,
+			"expired_at":                           nil,
+			"invoice_expires_at":                   expiresAt,
+			"checkout_session_url":                 invoice.PaymentURL,
+			"payment_intent_id":                    invoice.Reference,
+			"va_number":                            nullableInstruction(invoice.VANumber),
+			"qr_string":                            nullableInstruction(invoice.QRString),
+			"app_url":                              nullableInstruction(invoice.AppURL),
+			"invoice_claimed_at":                   nil,
+			"invoice_failure_reason":               nil,
+			"private_payment_email_sent_at":        nil,
+			"private_payment_email_claimed_at":     nil,
+			"private_payment_email_failure_reason": nil,
+			"updated_at":                           time.Now(),
 		})
 	return result.RowsAffected == 1, result.Error
 }

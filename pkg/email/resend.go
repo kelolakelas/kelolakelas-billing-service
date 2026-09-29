@@ -27,7 +27,7 @@ func NewResendClient(apiKey, from string, timeout ...time.Duration) domain.Email
 
 func (c *ResendClient) Send(ctx context.Context, message domain.EmailMessage) error {
 	if c.apiKey == "" || c.from == "" || message.To == "" {
-		return nil
+		return fmt.Errorf("email provider is not configured or recipient is empty")
 	}
 	payload := map[string]interface{}{"from": c.from, "to": []string{message.To}, "subject": message.Subject, "html": message.HTML}
 	body, err := json.Marshal(payload)
@@ -40,6 +40,9 @@ func (c *ResendClient) Send(ctx context.Context, message domain.EmailMessage) er
 	}
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
+	if message.IdempotencyKey != "" {
+		req.Header.Set("Idempotency-Key", message.IdempotencyKey)
+	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return err

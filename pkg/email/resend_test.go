@@ -16,8 +16,10 @@ import (
 
 func TestResendClientSendOmitsReplyTo(t *testing.T) {
 	var payload map[string]interface{}
+	var idempotencyKey string
 	client := NewResendClient("resend-test-key", "billing@example.com").(*ResendClient)
 	client.httpClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		idempotencyKey = request.Header.Get("Idempotency-Key")
 		body, err := io.ReadAll(request.Body)
 		if err != nil {
 			return nil, err
@@ -28,11 +30,31 @@ func TestResendClientSendOmitsReplyTo(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("{}")), Header: make(http.Header)}, nil
 	})}
 
-	if err := client.Send(context.Background(), domain.EmailMessage{To: "parent@example.com", Subject: "Payment reminder", HTML: "<p>Pay</p>"}); err != nil {
+	if err := client.Send(context.Background(), domain.EmailMessage{To: "parent@example.com", Subject: "Payment reminder", HTML: "<p>Pay</p>", IdempotencyKey: "private-payment/test"}); err != nil {
 		t.Fatal(err)
+	}
+	if idempotencyKey != "private-payment/test" {
+		t.Fatalf("idempotency key = %q", idempotencyKey)
 	}
 	if _, ok := payload["reply_to"]; ok {
 		t.Fatal("request payload unexpectedly contains reply_to")
+	}
+}
+
+func TestResendClientMissingConfigurationFailsWithoutNetwork(t *testing.T) {
+	for _, tc := range []struct{ key, from, to string }{
+		{"", "billing@example.test", "parent@example.test"},
+		{"key", "", "parent@example.test"},
+		{"key", "billing@example.test", ""},
+	} {
+		client := NewResendClient(tc.key, tc.from).(*ResendClient)
+		client.httpClient.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
+			t.Fatal("unexpected email request")
+			return nil, nil
+		})
+		if err := client.Send(context.Background(), domain.EmailMessage{To: tc.to}); err == nil {
+			t.Fatalf("missing configuration appeared successful: %+v", tc)
+		}
 	}
 }
 
