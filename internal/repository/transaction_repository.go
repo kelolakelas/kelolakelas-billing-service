@@ -220,6 +220,9 @@ func (r *transactionRepository) ClaimReinvoice(ctx context.Context, id uuid.UUID
 			"status":                 domain.TransactionStatusCreating,
 			"checkout_session_url":   nil,
 			"payment_intent_id":      nil,
+			"va_number":              nil,
+			"qr_string":              nil,
+			"app_url":                nil,
 			"invoice_claimed_at":     now,
 			"invoice_failure_reason": nil,
 			"updated_at":             now,
@@ -361,20 +364,30 @@ func (r *transactionRepository) CancelUnpaid(ctx context.Context, id uuid.UUID) 
 //
 // The claim bookkeeping is cleared in the same write: the row is no longer being
 // created, so it holds neither an outstanding claim nor a failure reason.
-func (r *transactionRepository) MarkInvoiceIssued(ctx context.Context, id uuid.UUID, checkoutSessionURL, paymentIntentID string, expiresAt time.Time) (bool, error) {
+func (r *transactionRepository) MarkInvoiceIssued(ctx context.Context, id uuid.UUID, invoice *domain.CreateInvoiceResponse, expiresAt time.Time) (bool, error) {
 	result := r.getDB(ctx).Model(&domain.Transaction{}).
 		Where("id = ? AND status IN ?", id, []string{domain.TransactionStatusCreating, domain.TransactionStatusPending}).
 		Updates(map[string]interface{}{
 			"status":                 domain.TransactionStatusPending,
 			"expired_at":             nil,
 			"invoice_expires_at":     expiresAt,
-			"checkout_session_url":   checkoutSessionURL,
-			"payment_intent_id":      paymentIntentID,
+			"checkout_session_url":   invoice.PaymentURL,
+			"payment_intent_id":      invoice.Reference,
+			"va_number":              nullableInstruction(invoice.VANumber),
+			"qr_string":              nullableInstruction(invoice.QRString),
+			"app_url":                nullableInstruction(invoice.AppURL),
 			"invoice_claimed_at":     nil,
 			"invoice_failure_reason": nil,
 			"updated_at":             time.Now(),
 		})
 	return result.RowsAffected == 1, result.Error
+}
+
+func nullableInstruction(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 func (r *transactionRepository) ClaimPaymentLinkEmail(ctx context.Context, id uuid.UUID, sentAt time.Time) (bool, error) {

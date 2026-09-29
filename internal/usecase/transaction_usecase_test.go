@@ -180,6 +180,7 @@ func (r *transactionRepoStub) ClaimReinvoice(_ context.Context, id uuid.UUID, no
 	current.Status = domain.TransactionStatusCreating
 	current.CheckoutSessionURL = nil
 	current.PaymentIntentID = nil
+	current.VANumber, current.QRString, current.AppURL = nil, nil, nil
 	current.InvoiceClaimedAt = &now
 	current.InvoiceFailureReason = nil
 	return true, nil
@@ -254,7 +255,7 @@ func (r *transactionRepoStub) CancelUnpaid(_ context.Context, id uuid.UUID) (boo
 // MarkInvoiceIssued mirrors the conditional update of the real repository: the row
 // only accepts a payment link while it is still expecting one, so a cancellation that
 // landed first is not silently overwritten.
-func (r *transactionRepoStub) MarkInvoiceIssued(_ context.Context, id uuid.UUID, checkoutSessionURL, paymentIntentID string, expiresAt time.Time) (bool, error) {
+func (r *transactionRepoStub) MarkInvoiceIssued(_ context.Context, id uuid.UUID, invoice *domain.CreateInvoiceResponse, expiresAt time.Time) (bool, error) {
 	current, err := r.current()
 	if err != nil || current.ID != id {
 		return false, nil
@@ -265,8 +266,9 @@ func (r *transactionRepoStub) MarkInvoiceIssued(_ context.Context, id uuid.UUID,
 	current.Status = domain.TransactionStatusPending
 	current.ExpiredAt = nil
 	current.InvoiceExpiresAt = &expiresAt
-	current.CheckoutSessionURL = &checkoutSessionURL
-	current.PaymentIntentID = &paymentIntentID
+	current.CheckoutSessionURL = &invoice.PaymentURL
+	current.PaymentIntentID = &invoice.Reference
+	setPaymentInstructions(current, invoice)
 	current.InvoiceClaimedAt = nil
 	current.InvoiceFailureReason = nil
 	return true, nil
@@ -481,6 +483,7 @@ func TestHandleDuitkuWebhookAcceptsPaidCallbackForExpiredTransaction(t *testing.
 		ID: uuid.New(), MerchantOrderID: uuid.NewString(), TenantID: uuid.New(), ParentID: uuid.New(),
 		StudentID: uuid.New(), EnrollmentID: uuid.New(), GrossAmount: 40000, NetAmount: 38000,
 		Currency: "IDR", Status: domain.TransactionStatusExpired, ExpiredAt: &expiredAt,
+		VANumber: strPtr("VA-OLD"), CheckoutSessionURL: strPtr("https://old.test"),
 		IsSandbox: true, SubscriptionID: &subscriptionID,
 	}
 	repo := &transactionRepoStub{transaction: tx}
@@ -507,6 +510,9 @@ func TestHandleDuitkuWebhookAcceptsPaidCallbackForExpiredTransaction(t *testing.
 	}
 	if tx.ExpiredAt == nil || !tx.ExpiredAt.Equal(expiredAt) {
 		t.Fatalf("local expiry evidence = %v, want %v", tx.ExpiredAt, expiredAt)
+	}
+	if response := transactionResponse(tx); response.VANumber != "" || response.CheckoutSessionURL != "" {
+		t.Fatalf("late settlement exposed stale payment instructions: %+v", response)
 	}
 	if academicStub.calls != 1 {
 		t.Fatalf("ActivateEnrollment calls = %d, want 1", academicStub.calls)
@@ -794,7 +800,7 @@ func TestReusableInvoiceResponseSkipsUnusableLinks(t *testing.T) {
 		{name: "valid deadline", tx: &domain.Transaction{Status: domain.TransactionStatusPending, CheckoutSessionURL: &link, InvoiceExpiresAt: &future}, want: true},
 		{name: "unknown deadline", tx: &domain.Transaction{Status: domain.TransactionStatusPending, CheckoutSessionURL: &link}, want: true},
 		{name: "pending retry state", tx: &domain.Transaction{Status: "creating", CheckoutSessionURL: &link}, want: true},
-		{name: "failed status", tx: &domain.Transaction{Status: domain.TransactionStatusFailed, CheckoutSessionURL: &link}, want: true},
+		{name: "failed status", tx: &domain.Transaction{Status: domain.TransactionStatusFailed, CheckoutSessionURL: &link}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

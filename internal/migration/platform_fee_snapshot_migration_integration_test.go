@@ -8,6 +8,7 @@ import (
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/domain"
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/repository"
@@ -46,6 +47,7 @@ func TestPlatformFeeSnapshotMigrationPostgres(t *testing.T) {
 	legacy := kel99Transaction(uuid.New())
 	repo := repository.NewTransactionRepository(db)
 	ctx := context.Background()
+	legacyDB := db.Session(&gorm.Session{NewDB: true}).Omit("VANumber", "QRString", "AppURL")
 	// A pre-KEL-99 row, inserted before the snapshot columns exist.
 	if err := db.Exec(`INSERT INTO transactions (id, merchant_order_id, tenant_id, parent_id, student_id, enrollment_id, subtotal_amount, discount_amount, gross_amount, platform_fee, payment_gateway_fee, net_amount, currency, status, billing_email, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, 180000, 0, 180000, 2000, 0, 178000, 'IDR', 'pending', '', now(), now())`,
@@ -78,20 +80,21 @@ func TestPlatformFeeSnapshotMigrationPostgres(t *testing.T) {
 	}
 	priced := kel99Transaction(uuid.New())
 	breakdown.Apply(priced)
-	if err := repo.Create(ctx, priced); err != nil {
+	// This historical migration test runs before the later instruction columns exist.
+	if err := legacyDB.Create(priced).Error; err != nil {
 		t.Fatalf("create priced transaction: %v", err)
 	}
-	stored, err = repo.GetByID(ctx, priced.ID)
+	stored = &domain.Transaction{}
+	err = legacyDB.First(stored, "id = ?", priced.ID).Error
 	if err != nil {
 		t.Fatal(err)
 	}
 	if stored.PlatformFee != 10000 || stored.NetAmount != 170000 || stored.PlatformFeePolicyVersion == nil || *stored.PlatformFeePolicyVersion != 3 || *stored.PlatformFeePercentBps != 500 || *stored.PlatformFeeFixed != 1000 {
 		t.Fatalf("stored snapshot = %+v", stored)
 	}
-	// A full-row save with unchanged values and a status update are allowed.
-	stored.Status = domain.TransactionStatusFailed
-	if err := repo.Update(ctx, stored); err != nil {
-		t.Fatalf("full-row save: %v", err)
+	// A status update remains allowed on a row at this historical schema version.
+	if err := db.Exec(`UPDATE transactions SET status = 'failed' WHERE id = ?`, stored.ID).Error; err != nil {
+		t.Fatalf("status update: %v", err)
 	}
 	for what, sql := range map[string]string{
 		"change policy version": `UPDATE transactions SET platform_fee_policy_version = 4 WHERE id = ?`,
@@ -112,7 +115,7 @@ func TestPlatformFeeSnapshotMigrationPostgres(t *testing.T) {
 		tx := kel99Transaction(uuid.New())
 		breakdown.Apply(tx)
 		mutate(tx)
-		kel99MustFail(t, repo.Create(ctx, tx), what)
+		kel99MustFail(t, legacyDB.Create(tx).Error, what)
 	}
 
 	// Down removes only the snapshot machinery; charged amounts stay.

@@ -2,11 +2,13 @@ package database
 
 import (
 	"fmt"
+	"io"
 	"log/slog"
 	"time"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 func NewPostgresDB(host, port, user, password, dbname, sslMode, channelBinding string) (*gorm.DB, error) {
@@ -14,7 +16,12 @@ func NewPostgresDB(host, port, user, password, dbname, sslMode, channelBinding s
 
 	slog.Info("Connecting to PostgreSQL", "dsn", fmt.Sprintf("host=%s user=%s dbname=%s port=%s", host, user, dbname, port))
 
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	// SQL values include payment instructions; never interpolate them into logs.
+	redactedLogger := logger.New(slog.NewLogLogger(slog.NewTextHandler(io.Discard, nil), slog.LevelError), logger.Config{
+		LogLevel:             logger.Silent,
+		ParameterizedQueries: true,
+	})
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: redactedLogger})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}

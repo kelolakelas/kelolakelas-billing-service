@@ -135,6 +135,7 @@ func (w *SubscriptionWorker) process(ctx context.Context, subscription *domain.S
 			tx.Status = domain.TransactionStatusPending
 			tx.CheckoutSessionURL = nil
 			tx.PaymentIntentID = nil
+			tx.VANumber, tx.QRString, tx.AppURL = nil, nil, nil
 			tx.InvoiceExpiresAt = nil
 			tx.ExpiredAt = nil
 			if err := w.transactions.Update(ctx, tx); err != nil {
@@ -179,7 +180,7 @@ func (w *SubscriptionWorker) markInvoiceIssued(ctx context.Context, tx *domain.T
 		return false, fmt.Errorf("invoice response is missing")
 	}
 	if locked, ok := w.transactions.(repository.TransactionLockingRepository); ok {
-		issued, err := locked.MarkInvoiceIssued(ctx, tx.ID, invoice.PaymentURL, invoice.Reference, expiresAt)
+		issued, err := locked.MarkInvoiceIssued(ctx, tx.ID, invoice, expiresAt)
 		if err != nil {
 			return false, err
 		}
@@ -188,6 +189,7 @@ func (w *SubscriptionWorker) markInvoiceIssued(ctx context.Context, tx *domain.T
 		}
 		tx.Status = domain.TransactionStatusPending
 		tx.CheckoutSessionURL = &invoice.PaymentURL
+		setPaymentInstructions(tx, invoice)
 		tx.PaymentIntentID = &invoice.Reference
 		tx.InvoiceExpiresAt = &expiresAt
 		tx.InvoiceClaimedAt = nil
@@ -196,6 +198,7 @@ func (w *SubscriptionWorker) markInvoiceIssued(ctx context.Context, tx *domain.T
 	}
 	tx.PaymentIntentID = &invoice.Reference
 	tx.CheckoutSessionURL = &invoice.PaymentURL
+	setPaymentInstructions(tx, invoice)
 	tx.InvoiceExpiresAt = &expiresAt
 	tx.Status = domain.TransactionStatusPending
 	tx.InvoiceClaimedAt = nil

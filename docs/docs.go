@@ -816,6 +816,9 @@ const docTemplate = `{
         "github_com_kelolakelas_kelolakelas-billing-service_internal_domain.TransactionResponse": {
             "type": "object",
             "properties": {
+                "app_url": {
+                    "type": "string"
+                },
                 "checkout_session_url": {
                     "type": "string"
                 },
@@ -870,6 +873,9 @@ const docTemplate = `{
                 "payment_intent_id": {
                     "type": "string"
                 },
+                "payment_method": {
+                    "type": "string"
+                },
                 "platform_fee": {
                     "type": "integer"
                 },
@@ -881,6 +887,9 @@ const docTemplate = `{
                 },
                 "platform_fee_policy_version": {
                     "type": "integer"
+                },
+                "qr_string": {
+                    "type": "string"
                 },
                 "reconciliation_attempts": {
                     "type": "integer"
@@ -910,6 +919,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "updated_at": {
+                    "type": "string"
+                },
+                "va_number": {
                     "type": "string"
                 },
                 "voucher_id": {

@@ -348,6 +348,7 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 	tx.InvoiceExpiresAt = &expiresAt
 	tx.PaymentIntentID = &invoice.Reference
 	tx.CheckoutSessionURL = &invoice.PaymentURL
+	setPaymentInstructions(tx, invoice)
 	tx.UpdatedAt = now
 
 	// The transaction is payable again, so a seat release that has not been claimed
@@ -378,7 +379,7 @@ func (u *transactionUsecase) markInvoiceIssued(ctx context.Context, tx *domain.T
 		return false, fmt.Errorf("invoice response is missing")
 	}
 	if lockingRepo, ok := u.txRepo.(repository.TransactionLockingRepository); ok {
-		issued, err := lockingRepo.MarkInvoiceIssued(ctx, tx.ID, invoice.PaymentURL, invoice.Reference, expiresAt)
+		issued, err := lockingRepo.MarkInvoiceIssued(ctx, tx.ID, invoice, expiresAt)
 		if err != nil {
 			return false, fmt.Errorf("failed to save Duitku payment details: %w", err)
 		}
@@ -389,6 +390,7 @@ func (u *transactionUsecase) markInvoiceIssued(ctx context.Context, tx *domain.T
 	tx.InvoiceExpiresAt = &expiresAt
 	tx.PaymentIntentID = &invoice.Reference
 	tx.CheckoutSessionURL = &invoice.PaymentURL
+	setPaymentInstructions(tx, invoice)
 	tx.InvoiceClaimedAt = nil
 	tx.InvoiceFailureReason = nil
 	tx.UpdatedAt = now
@@ -396,6 +398,20 @@ func (u *transactionUsecase) markInvoiceIssued(ctx context.Context, tx *domain.T
 		return false, fmt.Errorf("failed to save Duitku payment details: %w", err)
 	}
 	return true, nil
+}
+
+func setPaymentInstructions(tx *domain.Transaction, invoice *domain.CreateInvoiceResponse) {
+	// Empty provider fields replace old instructions rather than inheriting them.
+	tx.VANumber = instructionPointer(invoice.VANumber)
+	tx.QRString = instructionPointer(invoice.QRString)
+	tx.AppURL = instructionPointer(invoice.AppURL)
+}
+
+func instructionPointer(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 // releaseFailedInvoiceClaim hands a refused or failed invoice creation back as a
@@ -434,7 +450,7 @@ func releaseFailedInvoiceClaim(ctx context.Context, repo repository.TransactionR
 	}
 	if !restored {
 		slog.WarnContext(ctx, "invoice claim was not released because the transaction is no longer owned",
-			"transaction_id", id.String(), "reason", reason)
+			"transaction_id", id.String())
 	}
 }
 
@@ -447,7 +463,7 @@ func reusableInvoiceResponse(tx *domain.Transaction, now time.Time) (*domain.Gen
 		return nil, false
 	}
 	switch tx.Status {
-	case domain.TransactionStatusPending, domain.TransactionStatusFailed, "creating":
+	case domain.TransactionStatusPending, domain.TransactionStatusCreating:
 	default:
 		return nil, false
 	}
@@ -513,14 +529,21 @@ func transactionResponse(tx *domain.Transaction) *domain.TransactionResponse {
 		provider = *tx.PaymentGatewayProvider
 	}
 	intent := ""
-	if tx.PaymentIntentID != nil {
+	payable := tx.Status == domain.TransactionStatusPending && (tx.InvoiceExpiresAt == nil || tx.InvoiceExpiresAt.After(time.Now()))
+	if payable && tx.PaymentIntentID != nil {
 		intent = *tx.PaymentIntentID
 	}
 	checkout := ""
-	if tx.CheckoutSessionURL != nil {
+	if payable && tx.CheckoutSessionURL != nil {
 		checkout = *tx.CheckoutSessionURL
 	}
 	response := &domain.TransactionResponse{ID: tx.ID, MerchantOrderID: tx.MerchantOrderID, TenantID: tx.TenantID, ParentID: tx.ParentID, StudentID: tx.StudentID, EnrollmentID: tx.EnrollmentID, VoucherID: tx.VoucherID, SubtotalAmount: tx.SubtotalAmount, DiscountAmount: tx.DiscountAmount, GrossAmount: tx.GrossAmount, PlatformFee: tx.PlatformFee, PaymentGatewayFee: tx.PaymentGatewayFee, NetAmount: tx.NetAmount, PlatformFeePolicyVersion: tx.PlatformFeePolicyVersion, PlatformFeePercentBps: tx.PlatformFeePercentBps, PlatformFeeFixed: tx.PlatformFeeFixed, Currency: tx.Currency, Status: tx.Status, PaymentGatewayProvider: provider, PaymentIntentID: intent, CheckoutSessionURL: checkout, InvoiceExpiresAt: tx.InvoiceExpiresAt, ExpiredAt: tx.ExpiredAt, PaidAt: tx.PaidAt, CreatedAt: tx.CreatedAt, UpdatedAt: tx.UpdatedAt}
+	if payable && checkout != "" {
+		response.PaymentMethod = valueOrEmpty(tx.PaymentMethod)
+		response.VANumber = valueOrEmpty(tx.VANumber)
+		response.QRString = valueOrEmpty(tx.QRString)
+		response.AppURL = valueOrEmpty(tx.AppURL)
+	}
 	if tx.Reconciliation != nil {
 		status := tx.Reconciliation.Status
 		if status == domain.ReconciliationStatusPending || status == domain.ReconciliationStatusProcessing {

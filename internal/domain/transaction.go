@@ -141,6 +141,9 @@ type Transaction struct {
 	PaymentMethod            *string        `gorm:"type:varchar(255)" json:"payment_method,omitempty"`
 	PaymentIntentID          *string        `gorm:"type:varchar(255);unique;index" json:"payment_intent_id,omitempty"`
 	CheckoutSessionURL       *string        `gorm:"type:text" json:"checkout_session_url,omitempty"`
+	VANumber                 *string        `gorm:"type:text" json:"-"`
+	QRString                 *string        `gorm:"type:text" json:"-"`
+	AppURL                   *string        `gorm:"type:text" json:"-"`
 	BillingEmail             string         `gorm:"type:varchar(255)" json:"billing_email,omitempty"`
 	ClassName                string         `gorm:"type:varchar(255)" json:"class_name,omitempty"`
 	PaymentLinkSentAt        *time.Time     `gorm:"type:timestamp" json:"payment_link_sent_at,omitempty"`
@@ -223,6 +226,10 @@ type TransactionResponse struct {
 	PaymentGatewayProvider      string     `json:"payment_gateway_provider,omitempty"`
 	PaymentIntentID             string     `json:"payment_intent_id,omitempty"`
 	CheckoutSessionURL          string     `json:"checkout_session_url,omitempty"`
+	PaymentMethod               string     `json:"payment_method,omitempty"`
+	VANumber                    string     `json:"va_number,omitempty"`
+	QRString                    string     `json:"qr_string,omitempty"`
+	AppURL                      string     `json:"app_url,omitempty"`
 	InvoiceExpiresAt            *time.Time `json:"invoice_expires_at,omitempty"`
 	ExpiredAt                   *time.Time `json:"expired_at,omitempty"`
 	InvoiceClaimedAt            *time.Time `json:"invoice_claimed_at,omitempty"`
