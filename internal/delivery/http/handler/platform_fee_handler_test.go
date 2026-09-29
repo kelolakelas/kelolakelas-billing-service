@@ -29,6 +29,13 @@ func callGenerateWithError(t *testing.T, err error) *httptest.ResponseRecorder {
 	return recorder
 }
 
+func TestGenerateSubscriptionPaymentRejectsInvalidMethodWith400(t *testing.T) {
+	recorder := callGenerateWithError(t, domain.ErrInvalidPaymentMethod)
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "invalid payment method") {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
 // KEL-99: a fee above the gross amount answers 422 with the stable code and
 // the Indonesian message.
 func TestGenerateSubscriptionPaymentFeeAboveGrossIs422WithStableCode(t *testing.T) {

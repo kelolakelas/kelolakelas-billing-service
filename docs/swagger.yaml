@@ -64,6 +64,14 @@ definitions:
       payment_gateway_fee:
         minimum: 0
         type: integer
+      payment_method:
+        enum:
+        - VC
+        - VA
+        - BC
+        - SP
+        - NQ
+        type: string
       platform_fee:
         description: |-
           PlatformFee is accepted for compatibility with existing callers but is

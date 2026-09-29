@@ -132,6 +132,16 @@ func (u *transactionUsecase) GetTransaction(ctx context.Context, id uuid.UUID) (
 }
 
 func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, req *domain.GenerateSubscriptionPaymentRequest) (*domain.GenerateSubscriptionPaymentResponse, error) {
+	// Validate at the trusted boundary too: internal callers can bypass HTTP binding.
+	paymentMethod := req.PaymentMethod
+	if paymentMethod == "" {
+		paymentMethod = "VC"
+	}
+	switch paymentMethod {
+	case "VC", "VA", "BC", "SP", "NQ":
+	default:
+		return nil, domain.ErrInvalidPaymentMethod
+	}
 	now := time.Now()
 	hasTransaction := false
 	if existing, err := u.txRepo.GetByEnrollmentID(ctx, req.EnrollmentID); err == nil {
@@ -210,6 +220,7 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 		PaymentGatewayProvider: &provider,
 		BillingEmail:           req.SenderEmail,
 		ClassName:              subscription.ClassName,
+		PaymentMethod:          &paymentMethod,
 	}
 	tx.BillingPeriodStart = &now
 	fees.Apply(tx)
@@ -229,6 +240,13 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 			return nil, domain.ErrInvalidTransactionStatus
 		}
 		tx = existing
+		// Reissues keep the transaction's original channel; a replay cannot switch
+		// a previously issued payment to another provider method.
+		if tx.PaymentMethod != nil && *tx.PaymentMethod != "" {
+			paymentMethod = *tx.PaymentMethod
+		} else {
+			paymentMethod = "VC" // legacy invoices were always issued as VC
+		}
 		tx.SubscriptionID = &subscription.ID
 		claimed, claimErr := u.claimReinvoice(ctx, tx.ID, now)
 		if claimErr != nil {
@@ -279,6 +297,13 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 		}
 	}
 
+	// The winner's persisted transaction selects the method, including after a
+	// concurrent insert lost the unique enrollment constraint.
+	if tx.PaymentMethod != nil && *tx.PaymentMethod != "" {
+		paymentMethod = *tx.PaymentMethod
+	} else {
+		paymentMethod = "VC"
+	}
 	validityMinutes := u.invoiceValidityMinutes()
 	invoice, err := u.paymentGateway.CreateInvoice(ctx, &domain.CreateInvoiceRequest{
 		MerchantOrderID: tx.MerchantOrderID,
@@ -287,7 +312,7 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 		Email:           req.SenderEmail,
 		PhoneNumber:     req.SenderPhone,
 		CustomerVAName:  req.SenderName,
-		PaymentMethod:   "VC",
+		PaymentMethod:   paymentMethod,
 		CallbackURL:     u.cfg.DuitkuCallbackURL,
 		ReturnURL:       u.cfg.DuitkuReturnURL,
 		ExpiryPeriod:    validityMinutes,
@@ -885,7 +910,9 @@ func (u *transactionUsecase) handleDuitkuWebhookLocal(ctx context.Context, paylo
 		tx.Status = domain.TransactionStatusPaid
 		tx.PaidAt = &now
 		if payload.PaymentCode != "" {
-			tx.PaymentMethod = &payload.PaymentCode
+			if tx.PaymentMethod == nil || *tx.PaymentMethod == "" {
+				tx.PaymentMethod = &payload.PaymentCode
+			}
 		}
 		if payload.Reference != "" {
 			tx.PaymentIntentID = &payload.Reference
