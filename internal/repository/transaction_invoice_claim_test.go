@@ -134,10 +134,10 @@ func TestClaimReinvoiceIncludesTheAbandonedCreatingRow(t *testing.T) {
 	defer cleanup()
 
 	mock.ExpectBegin()
-	mock.ExpectExec(`(?s)UPDATE "transactions" SET .*WHERE \(id = \$7 AND \( status = \$8 OR .*status IN \(\$9,\$10\).*invoice_expires_at IS NOT NULL AND invoice_expires_at <= \$11.*status = \$12 AND checkout_session_url IS NULL AND \(invoice_claimed_at IS NULL OR invoice_claimed_at <= \$13\)`).
+	mock.ExpectExec(`(?s)UPDATE "transactions" SET .*WHERE \(id = \$10 AND \( status = \$11 OR .*status IN \(\$12,\$13\).*invoice_expires_at IS NOT NULL AND invoice_expires_at <= \$14.*status = \$15 AND checkout_session_url IS NULL AND \(invoice_claimed_at IS NULL OR invoice_claimed_at <= \$16\)`).
 		// The reissue drops the previous link and intent, then takes the claim under the same
 		// timestamp discipline as the first invoice.
-		WithArgs(nil, now, nil, nil, domain.TransactionStatusCreating, now, id,
+		WithArgs(nil, nil, now, nil, nil, nil, domain.TransactionStatusCreating, now, nil, id,
 			domain.TransactionStatusExpired,
 			domain.TransactionStatusPending, domain.TransactionStatusFailed, now,
 			domain.TransactionStatusCreating, staleBefore).

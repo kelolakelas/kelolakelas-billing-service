@@ -42,6 +42,9 @@ type inquiryRequest struct {
 type inquiryResponse struct {
 	Reference     string `json:"reference"`
 	PaymentURL    string `json:"paymentUrl"`
+	VANumber      string `json:"vaNumber"`
+	QRString      string `json:"qrString"`
+	AppURL        string `json:"appUrl"`
 	StatusCode    string `json:"statusCode"`
 	StatusMessage string `json:"statusMessage"`
 }
@@ -95,16 +98,21 @@ func (c *DuitkuAdapter) CreateInvoice(ctx context.Context, request *domain.Creat
 		return nil, fmt.Errorf("read Duitku inquiry response: %w", err)
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("Duitku inquiry failed with status %d: %s", response.StatusCode, strings.TrimSpace(string(responseBody)))
+		// Provider bodies may contain account numbers or credentials; never propagate
+		// them into errors, logs, or the HTTP response.
+		return nil, fmt.Errorf("Duitku inquiry failed with status %d", response.StatusCode)
 	}
 	var result inquiryResponse
 	if err := json.Unmarshal(responseBody, &result); err != nil {
 		return nil, fmt.Errorf("decode Duitku inquiry response: %w", err)
 	}
 	if result.StatusCode != "00" || result.PaymentURL == "" || result.Reference == "" {
-		return nil, fmt.Errorf("Duitku inquiry rejected: %s", result.StatusMessage)
+		return nil, fmt.Errorf("Duitku inquiry rejected")
 	}
-	return &domain.CreateInvoiceResponse{Reference: result.Reference, PaymentURL: result.PaymentURL}, nil
+	return &domain.CreateInvoiceResponse{
+		Reference: result.Reference, PaymentURL: result.PaymentURL,
+		VANumber: result.VANumber, QRString: result.QRString, AppURL: result.AppURL,
+	}, nil
 }
 
 // TransactionStatus checks one merchant order; a malformed or incomplete provider

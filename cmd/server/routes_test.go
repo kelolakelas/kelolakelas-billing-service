@@ -199,6 +199,24 @@ func TestParentTransactionReadsSkipThePermissionCheck(t *testing.T) {
 	}
 }
 
+func TestExpiredParentSessionCannotReadPaymentInstructions(t *testing.T) {
+	router, rec := newRouteTestRouter(t, &identityStub{})
+	claims := middleware.Claims{UserID: uuid.NewString(), IsParent: true}
+	claims.RegisteredClaims = jwt.RegisteredClaims{IssuedAt: jwt.NewNumericDate(time.Now().Add(-2 * time.Hour)), ExpiresAt: jwt.NewNumericDate(time.Now().Add(-time.Hour))}
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(routeTestSecret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/api/v1/billing/transactions", "/api/v1/billing/transactions/" + uuid.NewString()} {
+		if got := serve(router, http.MethodGet, path, token, nil); got.Code != http.StatusUnauthorized {
+			t.Fatalf("%s status=%d, want 401", path, got.Code)
+		}
+	}
+	if rec.hits["list"] != 0 || rec.hits["get"] != 0 {
+		t.Fatalf("expired session reached handlers: %v", rec.hits)
+	}
+}
+
 func TestTransactionReadsFailClosedWhenIdentityIsUnavailable(t *testing.T) {
 	stub := &identityStub{err: errors.New("rpc error: code = Unavailable")}
 	router, rec := newRouteTestRouter(t, stub)

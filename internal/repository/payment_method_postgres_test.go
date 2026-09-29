@@ -89,7 +89,7 @@ func TestConcurrentPaymentMethodsClaimOnlyOneInvoicePostgres(t *testing.T) {
 	if winners != 1 {
 		t.Fatalf("invoice claims=%d, want one", winners)
 	}
-	issued, err := repo.(TransactionLockingRepository).MarkInvoiceIssued(context.Background(), tx.ID, "https://pay.example.test/invoice", "REF-ONE", time.Now().Add(time.Hour))
+	issued, err := repo.(TransactionLockingRepository).MarkInvoiceIssued(context.Background(), tx.ID, &domain.CreateInvoiceResponse{PaymentURL: "https://pay.example.test/invoice", Reference: "REF-ONE", VANumber: "7007014001444348", QRString: "QR-PAYLOAD", AppURL: "https://app.example.test/pay"}, time.Now().Add(time.Hour))
 	if err != nil || !issued {
 		t.Fatalf("issue=%v err=%v", issued, err)
 	}
@@ -97,7 +97,7 @@ func TestConcurrentPaymentMethodsClaimOnlyOneInvoicePostgres(t *testing.T) {
 		t.Fatalf("replay claim=%v err=%v", ok, err)
 	}
 	stored, err := repo.GetByEnrollmentID(context.Background(), tx.EnrollmentID)
-	if err != nil || stored.PaymentMethod == nil || *stored.PaymentMethod != "SP" || stored.CheckoutSessionURL == nil || *stored.CheckoutSessionURL != "https://pay.example.test/invoice" {
+	if err != nil || stored.PaymentMethod == nil || *stored.PaymentMethod != "SP" || stored.CheckoutSessionURL == nil || *stored.CheckoutSessionURL != "https://pay.example.test/invoice" || stored.VANumber == nil || *stored.VANumber != "7007014001444348" || stored.QRString == nil || *stored.QRString != "QR-PAYLOAD" || stored.AppURL == nil || *stored.AppURL != "https://app.example.test/pay" {
 		t.Fatalf("stored transaction=%+v err=%v", stored, err)
 	}
 }

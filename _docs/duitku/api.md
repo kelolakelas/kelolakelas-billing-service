@@ -253,7 +253,7 @@ Adapter saat ini mengirim field inti berikut:
 }
 ```
 
-`reference` harus disimpan untuk rekonsiliasi dan pengecekan status. `paymentUrl` digunakan untuk checkout hosted Duitku.
+`reference` disimpan untuk rekonsiliasi dan pengecekan status. `paymentUrl` tetap menjadi `checkout_session_url` untuk checkout hosted Duitku. Billing juga menyimpan `vaNumber`, `qrString`, dan `appUrl` bila ada sebagai kolom nullable (`va_number`, `qr_string`, `app_url`) pada transaksi. GET `/api/v1/billing/transactions` dan `/api/v1/billing/transactions/{id}` menyajikan `payment_method`, `va_number`, `qr_string`, `app_url`, `checkout_session_url`, `status`, dan `invoice_expires_at` setelah scope parent/tenant diverifikasi. Detail pembayaran hanya tersedia saat status `pending` dan deadline belum lewat; pada status expired, failed, creating, cancelled, paid atau deadline yang telah lewat, field instruksi/checkout dihilangkan. Invoice legacy tanpa field instruksi tetap dapat memakai hosted checkout selama masih aktif. Penerbitan ulang membersihkan nilai instruksi lama secara atomik sebelum menulis respons provider baru; callback sukses yang sah sesudah expiry tetap menyelesaikan pembayaran tanpa menampilkan instruksi lama.
 
 ## 7. Callback
 

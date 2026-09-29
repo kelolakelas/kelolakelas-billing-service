@@ -92,7 +92,7 @@ type TransactionLockingRepository interface {
 	// a cancellation and an in-flight invoice creation can never resurrect each
 	// other: whichever statement runs second matches no row and reports false.
 	CancelUnpaid(ctx context.Context, id uuid.UUID) (bool, error)
-	MarkInvoiceIssued(ctx context.Context, id uuid.UUID, checkoutSessionURL, paymentIntentID string, expiresAt time.Time) (bool, error)
+	MarkInvoiceIssued(ctx context.Context, id uuid.UUID, invoice *domain.CreateInvoiceResponse, expiresAt time.Time) (bool, error)
 }
 
 // TransactionExpiryRepository expires unpaid transactions whose invoice validity

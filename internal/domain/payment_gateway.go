@@ -18,6 +18,9 @@ type CreateInvoiceRequest struct {
 type CreateInvoiceResponse struct {
 	Reference  string
 	PaymentURL string
+	VANumber   string
+	QRString   string
+	AppURL     string
 }
 
 type DuitkuCallbackPayload struct {
