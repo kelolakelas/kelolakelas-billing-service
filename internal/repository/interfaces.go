@@ -57,10 +57,29 @@ type BankAccountRepository interface {
 type WithdrawalRepository interface {
 	Create(ctx context.Context, withdrawal *domain.Withdrawal) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Withdrawal, error)
+	// GetByIDScoped reads one withdrawal inside its tenant; anything else is
+	// gorm.ErrRecordNotFound so callers cannot distinguish missing or foreign
+	// rows.
+	GetByIDScoped(ctx context.Context, tenantID, id uuid.UUID) (*domain.Withdrawal, error)
 	Update(ctx context.Context, withdrawal *domain.Withdrawal) error
 	// CountActiveByBankAccount counts withdrawals in the given statuses that
 	// still reference the account; a non-zero count blocks deleting it.
 	CountActiveByBankAccount(ctx context.Context, accountID uuid.UUID, statuses []string) (int64, error)
+	// CountOpenByTenant counts the tenant's withdrawals that still hold
+	// balance; it runs under the caller's wallet row lock so concurrent
+	// requests serialize on the lock for the single-open guard.
+	CountOpenByTenant(ctx context.Context, tenantID uuid.UUID) (int64, error)
+	// GetByTenantAndKey returns the tenant's request stored under the
+	// idempotency key, or gorm.ErrRecordNotFound when never used.
+	GetByTenantAndKey(ctx context.Context, tenantID uuid.UUID, key string) (*domain.Withdrawal, error)
+	// ListByTenant returns one tenant's withdrawals newest first; page starts
+	// at 1.
+	ListByTenant(ctx context.Context, tenantID uuid.UUID, page, pageSize int) ([]domain.Withdrawal, int64, error)
+	// ClaimCancelled moves a `requested` withdrawal of the tenant to
+	// `cancelled` in one conditional statement and reports whether a row was
+	// actually moved, so concurrent cancellers (or a cancel racing a future
+	// admin processing step) have exactly one winner.
+	ClaimCancelled(ctx context.Context, tenantID, id uuid.UUID, now time.Time) (bool, error)
 }
 
 type VoucherRepository interface {

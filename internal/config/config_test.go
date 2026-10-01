@@ -192,6 +192,35 @@ func TestLoadConfigProviderTimeouts(t *testing.T) {
 	}
 }
 
+// KEL-143: the minimum is configurable from the environment and an unset or
+// non-positive value falls back to a safe default instead of accepting dust.
+func TestLoadConfigWithdrawalMinimumAmount(t *testing.T) {
+	for _, tc := range []struct {
+		name, value string
+		want        int64
+	}{
+		{name: "default", want: DefaultWithdrawalMinimumAmount},
+		{name: "override", value: "75000", want: 75000},
+		{name: "zero falls back", value: "0", want: DefaultWithdrawalMinimumAmount},
+		{name: "negative falls back", value: "-1", want: DefaultWithdrawalMinimumAmount},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			viper.Reset()
+			t.Chdir(t.TempDir())
+			t.Setenv("JWT_SECRET", "test-secret")
+			t.Setenv("INTERNAL_SERVICE_CREDENTIAL", "test-internal-credential")
+			t.Setenv("WITHDRAWAL_MINIMUM_AMOUNT", tc.value)
+			cfg, err := LoadConfig()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.WithdrawalMinimumAmount != tc.want {
+				t.Fatalf("minimum=%d, want %d", cfg.WithdrawalMinimumAmount, tc.want)
+			}
+		})
+	}
+}
+
 // KEL-57: the identity address and permission-check timeout have safe defaults, can be
 // overridden from the environment, and a non-positive timeout falls back to the default
 // instead of disabling the bound.

@@ -87,65 +87,84 @@ func (u *bankAccountUsecase) Update(ctx context.Context, tenantID, id uuid.UUID,
 	if req == nil || (req.BankCode == nil && req.AccountNumber == nil && req.AccountName == nil) {
 		return nil, domain.ErrBankAccountInvalid
 	}
-	account, err := u.accounts.GetByIDScoped(ctx, tenantID, id)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, domain.ErrBankAccountNotFound
-		}
-		return nil, err
-	}
-	if req.BankCode != nil {
-		if !validateBankAccountField(*req.BankCode) {
+	// Validate before locking so malformed payloads do not acquire a row
+	// lock. The transaction and row lock serialize an edit with a withdrawal
+	// snapshot on the same destination.
+	for _, field := range []*string{req.BankCode, req.AccountNumber, req.AccountName} {
+		if field != nil && !validateBankAccountField(*field) {
 			return nil, domain.ErrBankAccountInvalid
 		}
-		account.BankCode = strings.TrimSpace(*req.BankCode)
 	}
-	if req.AccountNumber != nil {
-		if !validateBankAccountField(*req.AccountNumber) {
-			return nil, domain.ErrBankAccountInvalid
+	var account *domain.BankAccount
+	update := func(ctx context.Context) error {
+		var err error
+		account, err = u.accounts.GetByIDScopedForUpdate(ctx, tenantID, id)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return domain.ErrBankAccountNotFound
+			}
+			return err
 		}
-		account.AccountNumber = strings.TrimSpace(*req.AccountNumber)
-	}
-	if req.AccountName != nil {
-		if !validateBankAccountField(*req.AccountName) {
-			return nil, domain.ErrBankAccountInvalid
+		if req.BankCode != nil {
+			account.BankCode = strings.TrimSpace(*req.BankCode)
 		}
-		account.AccountName = strings.TrimSpace(*req.AccountName)
+		if req.AccountNumber != nil {
+			account.AccountNumber = strings.TrimSpace(*req.AccountNumber)
+		}
+		if req.AccountName != nil {
+			account.AccountName = strings.TrimSpace(*req.AccountName)
+		}
+		return u.accounts.Update(ctx, account)
 	}
-	if err := u.accounts.Update(ctx, account); err != nil {
+	if u.txManager != nil {
+		if err := u.txManager.WithTransaction(ctx, update); err != nil {
+			return nil, mapBankAccountWriteError(err)
+		}
+	} else if err := update(ctx); err != nil {
 		return nil, mapBankAccountWriteError(err)
 	}
 	return domain.ToBankAccountResponse(account), nil
 }
 
 func (u *bankAccountUsecase) Delete(ctx context.Context, tenantID, id uuid.UUID) error {
-	account, err := u.accounts.GetByIDScoped(ctx, tenantID, id)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return domain.ErrBankAccountNotFound
+	remove := func(ctx context.Context) error {
+		// Lock the destination row before checking active withdrawals. A
+		// concurrent request locks the same row before taking its snapshot,
+		// so a deletion cannot pass the check then delete a newly active
+		// destination while the request commits.
+		account, err := u.accounts.GetByIDScopedForUpdate(ctx, tenantID, id)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return domain.ErrBankAccountNotFound
+			}
+			return err
 		}
-		return err
-	}
-	if account.IsPrimary {
 		if u.withdrawals == nil {
-			return domain.ErrBankAccountInUse
+			if account.IsPrimary {
+				return domain.ErrBankAccountInUse
+			}
+		} else {
+			count, err := u.withdrawals.CountActiveByBankAccount(ctx, account.ID, domain.WithdrawalActiveStatuses)
+			if err != nil {
+				return err
+			}
+			if count > 0 {
+				return domain.ErrBankAccountInUse
+			}
 		}
-		count, err := u.withdrawals.CountActiveByBankAccount(ctx, account.ID, domain.WithdrawalActiveStatuses)
+		deleted, err := u.accounts.SoftDelete(ctx, tenantID, id)
 		if err != nil {
 			return err
 		}
-		if count > 0 {
-			return domain.ErrBankAccountInUse
+		if !deleted {
+			return domain.ErrBankAccountNotFound
 		}
+		return nil
 	}
-	deleted, err := u.accounts.SoftDelete(ctx, tenantID, id)
-	if err != nil {
-		return err
+	if u.txManager != nil {
+		return u.txManager.WithTransaction(ctx, remove)
 	}
-	if !deleted {
-		return domain.ErrBankAccountNotFound
-	}
-	return nil
+	return remove(ctx)
 }
 
 // SetPrimary moves the primary slot to id without deleting any row, so payout

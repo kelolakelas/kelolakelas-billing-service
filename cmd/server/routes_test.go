@@ -82,6 +82,10 @@ func newRouteTestRouter(t *testing.T, stub *identityStub) (*gin.Engine, *routeRe
 		updateBankAccount:      rec.handler("bank-update"),
 		deleteBankAccount:      rec.handler("bank-delete"),
 		setPrimaryBankAccount:  rec.handler("bank-set-primary"),
+		requestWithdrawal:      rec.handler("withdrawal-request"),
+		cancelWithdrawal:       rec.handler("withdrawal-cancel"),
+		getWithdrawal:          rec.handler("withdrawal-get"),
+		listWithdrawals:        rec.handler("withdrawal-list"),
 	}, routeTestSecret, routeTestCredential, stub)
 	return router, rec
 }
