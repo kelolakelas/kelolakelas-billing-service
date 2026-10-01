@@ -91,11 +91,27 @@ type PlatformWithdrawalRepository interface {
 }
 
 type VoucherRepository interface {
+	// LockTenantCodes serializes code writes for this tenant within the caller's transaction.
+	LockTenantCodes(ctx context.Context, tenantID uuid.UUID) error
 	Create(ctx context.Context, voucher *domain.Voucher) error
-	GetByID(ctx context.Context, id uuid.UUID) (*domain.Voucher, error)
+	// GetByIDScoped reads one voucher inside its tenant; a missing row, a
+	// soft-deleted row, or a row of another tenant is
+	// gorm.ErrRecordNotFound so callers cannot distinguish them.
+	GetByIDScoped(ctx context.Context, tenantID, id uuid.UUID) (*domain.Voucher, error)
+	// GetByCode matches the code case-insensitively inside the tenant, or
+	// gorm.ErrRecordNotFound when the tenant has no live voucher under it.
 	GetByCode(ctx context.Context, tenantID uuid.UUID, code string) (*domain.Voucher, error)
+	// HasCodeOtherThan checks all matching live rows, excluding the row being renamed.
+	HasCodeOtherThan(ctx context.Context, tenantID, excludeID uuid.UUID, code string) (bool, error)
+	// GetByIDScopedForUpdate is the locked variant for write transactions.
+	GetByIDScopedForUpdate(ctx context.Context, tenantID, id uuid.UUID) (*domain.Voucher, error)
+	// ListByTenant returns the tenant's live vouchers newest first; page
+	// starts at 1.
+	ListByTenant(ctx context.Context, tenantID uuid.UUID, page, pageSize int) ([]domain.Voucher, int64, error)
 	Update(ctx context.Context, voucher *domain.Voucher) error
-	Delete(ctx context.Context, id uuid.UUID) error
+	// SoftDelete marks the row deleted; history rows are never removed. Only
+	// vouchers that never discounted a transaction reach here.
+	SoftDelete(ctx context.Context, tenantID, id uuid.UUID) (bool, error)
 }
 
 type TransactionRepository interface {

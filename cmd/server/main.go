@@ -63,6 +63,7 @@ func main() {
 	ledgerRepo := repository.NewLedgerEntryRepository(db)
 	bankAccountRepo := repository.NewBankAccountRepository(db)
 	withdrawalRepo := repository.NewWithdrawalRepository(db)
+	voucherRepo := repository.NewVoucherRepository(db)
 	txManager := repository.NewTransactionManager(db)
 	reconciliationRepo := repository.NewPaymentReconciliationRepository(db)
 
@@ -95,6 +96,7 @@ func main() {
 	walletHandler := handler.NewWalletHandler(usecase.NewWalletUsecase(walletRepo, ledgerRepo))
 	bankAccountHandler := handler.NewBankAccountHandler(usecase.NewBankAccountUsecase(bankAccountRepo, withdrawalRepo, txManager))
 	withdrawalHandler := handler.NewWithdrawalHandler(usecase.NewWithdrawalUsecase(walletRepo, ledgerRepo, bankAccountRepo, withdrawalRepo, txManager, cfg.WithdrawalMinimumAmount))
+	voucherHandler := handler.NewVoucherHandler(usecase.NewVoucherUsecase(voucherRepo, txManager))
 	platformWithdrawalHandler := handler.NewPlatformWithdrawalHandler(usecase.NewPlatformWithdrawalUsecase(withdrawalRepo, walletRepo, ledgerRepo, txManager))
 
 	// Initialize Router
@@ -149,6 +151,11 @@ func main() {
 		cancelWithdrawal:       withdrawalHandler.CancelWithdrawal,
 		getWithdrawal:          withdrawalHandler.GetWithdrawal,
 		listWithdrawals:        withdrawalHandler.ListWithdrawals,
+		listVouchers:           voucherHandler.ListVouchers,
+		getVoucher:             voucherHandler.GetVoucher,
+		createVoucher:          voucherHandler.CreateVoucher,
+		updateVoucher:          voucherHandler.UpdateVoucher,
+		deleteVoucher:          voucherHandler.DeleteVoucher,
 		platformWithdrawals:    platformWithdrawalHandler.ListRequested,
 		platformMarkPaid:       platformWithdrawalHandler.MarkPaid,
 		platformReject:         platformWithdrawalHandler.Reject,

@@ -27,6 +27,11 @@ type routeHandlers struct {
 	updateBankAccount      gin.HandlerFunc
 	deleteBankAccount      gin.HandlerFunc
 	setPrimaryBankAccount  gin.HandlerFunc
+	listVouchers           gin.HandlerFunc
+	getVoucher             gin.HandlerFunc
+	createVoucher          gin.HandlerFunc
+	updateVoucher          gin.HandlerFunc
+	deleteVoucher          gin.HandlerFunc
 	requestWithdrawal      gin.HandlerFunc
 	cancelWithdrawal       gin.HandlerFunc
 	getWithdrawal          gin.HandlerFunc
@@ -42,7 +47,9 @@ type routeHandlers struct {
 // (KEL-57, ADR 0024), and the wallet and ledger reads (KEL-142) are tenant-only
 // like the sales summary: parents are refused before identity or the handler
 // run. Payout-account writes (KEL-142) and withdrawal requests and cancels
-// (KEL-143) need `billing:withdraw`. The Duitku
+// (KEL-143) need `billing:withdraw`. Tenant voucher reads, creates, updates,
+// and deletes (KEL-161) each need their own `voucher:*` permission and are
+// tenant-only like the payout-account routes. The Duitku
 // webhook keeps its HMAC check, and the internal routes keep the static
 // internal credential; neither is a tenant-member call, so neither asks
 // identity anything.
@@ -72,6 +79,13 @@ func registerRoutes(r gin.IRouter, h routeHandlers, jwtSecret, internalCredentia
 	protected.GET("/withdrawals", billingWithdraw, h.listWithdrawals)
 	protected.GET("/withdrawals/:id", billingWithdraw, h.getWithdrawal)
 	protected.DELETE("/withdrawals/:id", billingWithdraw, h.cancelWithdrawal)
+	// The static collection path must stay registered before the detail route
+	// is read alongside it, mirroring the transaction export contract above.
+	protected.GET("/vouchers", middleware.RequirePermission(permissions, middleware.PermissionVoucherRead), h.listVouchers)
+	protected.POST("/vouchers", middleware.RequirePermission(permissions, middleware.PermissionVoucherCreate), h.createVoucher)
+	protected.GET("/vouchers/:id", middleware.RequirePermission(permissions, middleware.PermissionVoucherRead), h.getVoucher)
+	protected.PATCH("/vouchers/:id", middleware.RequirePermission(permissions, middleware.PermissionVoucherUpdate), h.updateVoucher)
+	protected.DELETE("/vouchers/:id", middleware.RequirePermission(permissions, middleware.PermissionVoucherDelete), h.deleteVoucher)
 
 	platform := r.Group("/api/v1/platform/withdrawals")
 	platform.Use(middleware.AuthMiddleware(jwtSecret), middleware.RequireActivePlatform(admins))

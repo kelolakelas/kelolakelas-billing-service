@@ -20,6 +20,23 @@ const PermissionBillingRead = "billing:read"
 // Creator role only.
 const PermissionBillingWithdraw = "billing:withdraw"
 
+// PermissionVoucherCreate lets a tenant member create the tenant's discount
+// vouchers (KEL-161). Identity seeds it for the Creator role only.
+const PermissionVoucherCreate = "voucher:create"
+
+// PermissionVoucherRead lets a tenant member list and read the tenant's
+// discount vouchers (KEL-161). Identity seeds it for the Creator role only.
+const PermissionVoucherRead = "voucher:read"
+
+// PermissionVoucherUpdate lets a tenant member update and deactivate the
+// tenant's discount vouchers (KEL-161). Identity seeds it for the Creator
+// role only.
+const PermissionVoucherUpdate = "voucher:update"
+
+// PermissionVoucherDelete lets a tenant member delete the tenant's unused
+// discount vouchers (KEL-161). Identity seeds it for the Creator role only.
+const PermissionVoucherDelete = "voucher:delete"
+
 // RequirePermission guards tenant-only reads: parent credentials cannot be used even
 // when they carry a tenant claim, and cannot reach identity or the handler.
 func RequirePermission(client identity.PermissionClient, permission string) gin.HandlerFunc {

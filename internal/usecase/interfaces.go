@@ -18,8 +18,21 @@ type WalletUsecase interface {
 }
 
 type VoucherUsecase interface {
-	CreateVoucher(ctx context.Context, voucher *domain.Voucher) error
-	ValidateVoucher(ctx context.Context, tenantID uuid.UUID, code string, amount int64) (*domain.Voucher, error)
+	// List returns one tenant's vouchers newest first with their usage
+	// counts.
+	List(ctx context.Context, tenantID uuid.UUID, query domain.VoucherQuery) (*domain.VoucherListResponse, error)
+	// Get returns one tenant voucher; a foreign id is ErrVoucherNotFound.
+	Get(ctx context.Context, tenantID, id uuid.UUID) (*domain.VoucherResponse, error)
+	// Create stores one tenant voucher; a code the tenant already uses is
+	// ErrVoucherDuplicate.
+	Create(ctx context.Context, tenantID uuid.UUID, req *domain.CreateVoucherRequest) (*domain.VoucherResponse, error)
+	// Update patches one tenant voucher; a code another live voucher of
+	// the tenant uses is ErrVoucherDuplicate.
+	Update(ctx context.Context, tenantID, id uuid.UUID, req *domain.UpdateVoucherRequest) (*domain.VoucherResponse, error)
+	// Delete removes a voucher that never discounted a transaction. A
+	// voucher with CurrentUses > 0 is ErrVoucherInUse: it can only be
+	// deactivated through Update, never deleted.
+	Delete(ctx context.Context, tenantID, id uuid.UUID) error
 }
 
 type TransactionUsecase interface {

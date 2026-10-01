@@ -27,6 +27,7 @@ const (
 type identityStub struct {
 	grants   map[string]bool // role_id -> holds billing:read
 	withdraw map[string]bool // role_id -> holds billing:withdraw
+	voucher  map[string]bool // role_id -> holds every voucher:* permission
 	removed  map[string]bool // member_id -> membership no longer active with that role
 	err      error
 	calls    []string
@@ -45,6 +46,9 @@ func (s *identityStub) CheckPermission(_ context.Context, tenantID, roleID, memb
 		return s.grants[roleID], nil
 	case middleware.PermissionBillingWithdraw:
 		return s.withdraw[roleID], nil
+	case middleware.PermissionVoucherCreate, middleware.PermissionVoucherRead,
+		middleware.PermissionVoucherUpdate, middleware.PermissionVoucherDelete:
+		return s.voucher[roleID], nil
 	default:
 		return false, nil
 	}
@@ -95,6 +99,11 @@ func newPlatformTestRouterWithPermissions(admin *platformStub, stub *identityStu
 		cancelWithdrawal:       rec.handler("withdrawal-cancel"),
 		getWithdrawal:          rec.handler("withdrawal-get"),
 		listWithdrawals:        rec.handler("withdrawal-list"),
+		listVouchers:           rec.handler("voucher-list"),
+		getVoucher:             rec.handler("voucher-get"),
+		createVoucher:          rec.handler("voucher-create"),
+		updateVoucher:          rec.handler("voucher-update"),
+		deleteVoucher:          rec.handler("voucher-delete"),
 		platformWithdrawals:    rec.handler("platform-withdrawal-list"),
 		platformMarkPaid:       rec.handler("platform-withdrawal-paid"),
 		platformReject:         rec.handler("platform-withdrawal-reject"),

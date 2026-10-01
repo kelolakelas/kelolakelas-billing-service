@@ -47,6 +47,32 @@ definitions:
     - account_number
     - bank_code
     type: object
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.CreateVoucherRequest:
+    properties:
+      code:
+        maxLength: 255
+        type: string
+      discount_type:
+        type: string
+      discount_value:
+        type: number
+      is_active:
+        type: boolean
+      max_discount_amount:
+        type: integer
+      max_uses:
+        type: integer
+      min_transaction_amount:
+        type: integer
+      valid_from:
+        type: string
+      valid_until:
+        type: string
+    required:
+    - code
+    - discount_type
+    - discount_value
+    type: object
   github_com_kelolakelas_kelolakelas-billing-service_internal_domain.DuitkuCallbackPayload:
     properties:
       amount:
@@ -458,6 +484,75 @@ definitions:
         type: string
       bank_code:
         maxLength: 255
+        type: string
+    type: object
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.UpdateVoucherRequest:
+    properties:
+      code:
+        maxLength: 255
+        type: string
+      discount_type:
+        type: string
+      discount_value:
+        type: number
+      is_active:
+        type: boolean
+      max_discount_amount:
+        type: integer
+      max_uses:
+        type: integer
+      min_transaction_amount:
+        type: integer
+      valid_from:
+        type: string
+      valid_until:
+        type: string
+    type: object
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.VoucherListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.VoucherResponse'
+        type: array
+      pagination:
+        properties:
+          page:
+            type: integer
+          page_size:
+            type: integer
+          total_items:
+            type: integer
+          total_pages:
+            type: integer
+        type: object
+    type: object
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.VoucherResponse:
+    properties:
+      code:
+        type: string
+      created_at:
+        type: string
+      current_uses:
+        type: integer
+      discount_type:
+        type: string
+      discount_value:
+        type: number
+      id:
+        type: string
+      is_active:
+        type: boolean
+      max_discount_amount:
+        type: integer
+      max_uses:
+        type: integer
+      min_transaction_amount:
+        type: integer
+      updated_at:
+        type: string
+      valid_from:
+        type: string
+      valid_until:
         type: string
     type: object
   github_com_kelolakelas_kelolakelas-billing-service_internal_domain.WalletBalanceResponse:
@@ -1028,6 +1123,273 @@ paths:
       security:
       - BearerAuth: []
       summary: Summarize paid tenant sales by currency and UTC paid date
+      tags:
+      - Billing
+  /api/v1/billing/vouchers:
+    get:
+      description: Tenant members with voucher:read only; parents are forbidden. Vouchers
+        are listed newest first with their usage counts.
+      parameters:
+      - description: Page number, starting at 1
+        in: query
+        name: page
+        type: integer
+      - description: Entries per page, at most 100
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.VoucherListResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List tenant vouchers
+      tags:
+      - Billing
+    post:
+      consumes:
+      - application/json
+      description: 'Tenant members with voucher:create only; parents are forbidden.
+        The code is unique case-insensitively per tenant: a percentage takes 1-100,
+        a nominal takes a positive amount, the date range must be ordered, and the
+        usage cap must cover what was already consumed.'
+      parameters:
+      - description: Voucher details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.CreateVoucherRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.VoucherResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+      summary: Create a tenant voucher
+      tags:
+      - Billing
+  /api/v1/billing/vouchers/{id}:
+    delete:
+      description: 'Tenant members with voucher:delete only; parents are forbidden.
+        The delete is a soft delete: history rows are never removed. A voucher that
+        already discounted a transaction answers 409 and can only be deactivated,
+        never deleted.'
+      parameters:
+      - description: Voucher UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete a tenant voucher
+      tags:
+      - Billing
+    get:
+      description: Tenant members with voucher:read only; parents are forbidden. A
+        voucher of another tenant answers 404, never its row.
+      parameters:
+      - description: Voucher UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.VoucherResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get one tenant voucher
+      tags:
+      - Billing
+    patch:
+      consumes:
+      - application/json
+      description: Tenant members with voucher:update only; parents are forbidden.
+        Only the supplied fields change; a rename colliding with another live voucher
+        of the tenant answers 409. Lowering the usage cap below what was already consumed
+        answers 400, and reactivating an expired voucher is allowed.
+      parameters:
+      - description: Voucher UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.UpdateVoucherRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.VoucherResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+      summary: Update a tenant voucher
       tags:
       - Billing
   /api/v1/billing/wallet:
