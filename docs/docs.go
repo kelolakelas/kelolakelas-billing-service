@@ -495,7 +495,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Parents see their own transactions. Tenant members need the ` + "`" + `billing:read` + "`" + ` permission in their tenant: without it the answer is 403, and while identity cannot be asked it is 503.",
+                "description": "Parents see their own transactions. Tenant members need the ` + "`" + `billing:read` + "`" + ` permission in their tenant: without it the answer is 403, and while identity cannot be asked it is 503. The date_from/date_to range filters on created_at by default; pass date_by=paid_at to filter on the payment date with inclusive UTC-day semantics matching the sales summary (ADR 0039).",
                 "produces": [
                     "application/json"
                 ],
@@ -503,6 +503,14 @@ const docTemplate = `{
                     "Billing"
                 ],
                 "summary": "List billing transactions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Date basis: created_at (default) or paid_at",
+                        "name": "date_by",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -524,6 +532,105 @@ const docTemplate = `{
                     },
                     "403": {
                         "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/billing/transactions/export": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Tenant members with billing:read only; parents are forbidden. Accepts the same filters as the list (status, student_id, enrollment_id, search, date_from, date_to, date_by) but defaults to paid transactions on the paid date over the last 30 UTC days, so the default export reconciles with the sales summary. Days are inclusive YYYY-MM-DD UTC (ADR 0039: a UTC day ends at 07:00 WIB), at most 366 calendar days. Rows stream in batches, so a full-range export never loads fully into memory. Cells starting with ` + "`" + `=` + "`" + `, ` + "`" + `+` + "`" + `, ` + "`" + `-` + "`" + `, or ` + "`" + `@` + "`" + ` carry a leading single quote so spreadsheets render them as text.",
+                "produces": [
+                    "text/csv"
+                ],
+                "tags": [
+                    "Billing"
+                ],
+                "summary": "Export tenant transactions as CSV",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Transaction status, defaults to paid",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Student UUID",
+                        "name": "student_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Enrollment UUID",
+                        "name": "enrollment_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Merchant order or payment intent substring",
+                        "name": "search",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "First UTC date (YYYY-MM-DD)",
+                        "name": "date_from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Last UTC date (YYYY-MM-DD)",
+                        "name": "date_to",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Date basis: created_at or paid_at, defaults to paid_at",
+                        "name": "date_by",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "CSV bytes",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
                         }

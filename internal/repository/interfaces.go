@@ -114,6 +114,17 @@ type SalesSummaryRepository interface {
 	SummarizePaid(ctx context.Context, tenantID uuid.UUID, from, until time.Time) ([]domain.SalesSummary, error)
 }
 
+// TransactionExportRepository streams one tenant's filtered transactions for
+// the CSV export. It is separate so legacy transaction test doubles need not
+// implement it, mirroring SalesSummaryRepository.
+type TransactionExportRepository interface {
+	// IterateExport calls fn with successive batches of at most batchSize
+	// rows, oldest first, and stops when the range is drained. The tenant
+	// scope is always applied; query carries the status, student, enrollment,
+	// search, and date filters shared with the list endpoint.
+	IterateExport(ctx context.Context, tenantID uuid.UUID, query domain.TransactionQuery, batchSize int, fn func([]domain.Transaction) error) error
+}
+
 type TransactionLockingRepository interface {
 	GetByIDForUpdate(ctx context.Context, id uuid.UUID) (*domain.Transaction, error)
 	// ClaimInvoice and ClaimReinvoice take exclusive ownership of creating an invoice

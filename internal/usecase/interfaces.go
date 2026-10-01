@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"io"
 	"time"
 
 	"github.com/google/uuid"
@@ -29,6 +30,12 @@ type TransactionUsecase interface {
 	HandleDuitkuWebhook(ctx context.Context, payload *domain.DuitkuCallbackPayload) error
 	List(ctx context.Context, tenantID, parentID *uuid.UUID, query domain.TransactionQuery) (*domain.TransactionListResponse, error)
 	SalesSummary(ctx context.Context, tenantID uuid.UUID, from, until time.Time) ([]domain.SalesSummary, error)
+	// ExportTransactions streams one tenant's filtered transactions as CSV to
+	// w (header plus one row per transaction) and reports the row count. The
+	// rows are written in batches, so a 366-day range never loads fully into
+	// memory. Query carries the same filters as List; the handler resolves
+	// the export defaults (paid status, paid_at basis, last 30 UTC days).
+	ExportTransactions(ctx context.Context, tenantID uuid.UUID, query domain.TransactionQuery, w io.Writer) (int64, error)
 	GetByIDScoped(ctx context.Context, tenantID, parentID *uuid.UUID, id uuid.UUID) (*domain.TransactionResponse, error)
 }
 

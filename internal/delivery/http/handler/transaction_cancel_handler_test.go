@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -34,6 +35,16 @@ type transactionUsecaseStub struct {
 	summaryTenant             uuid.UUID
 	summaryFrom, summaryUntil time.Time
 	summary                   []domain.SalesSummary
+	// lastExportQuery records the filter the export handler forwarded, so the
+	// tests can prove the export defaults (paid status, paid_at basis) and the
+	// caller's explicit filters reach the usecase unchanged.
+	lastExportQuery  domain.TransactionQuery
+	lastExportTenant uuid.UUID
+	exportRows       int64
+	exportErr        error
+	// exportTxns are the rows the stub serializes into the response writer,
+	// so export handler tests can assert on the streamed body.
+	exportTxns []domain.Transaction
 }
 
 func (s *transactionUsecaseStub) CreateTransaction(context.Context, *domain.Transaction) error {
@@ -70,6 +81,26 @@ func (s *transactionUsecaseStub) SalesSummary(_ context.Context, tenantID uuid.U
 	s.summaryTenant = tenantID
 	s.summaryFrom, s.summaryUntil = from, until
 	return s.summary, s.err
+}
+
+func (s *transactionUsecaseStub) ExportTransactions(_ context.Context, tenantID uuid.UUID, query domain.TransactionQuery, w io.Writer) (int64, error) {
+	s.calls++
+	s.lastExportTenant = tenantID
+	s.lastExportQuery = query
+	if s.exportErr != nil {
+		return 0, s.exportErr
+	}
+	writer := domain.NewTransactionExportWriter(w)
+	if err := domain.WriteTransactionExportHeader(writer); err != nil {
+		return 0, err
+	}
+	for i := range s.exportTxns {
+		if err := domain.WriteTransactionExportRow(writer, s.exportTxns[i]); err != nil {
+			return 0, err
+		}
+	}
+	writer.Flush()
+	return int64(len(s.exportTxns)), writer.Error()
 }
 
 func (s *transactionUsecaseStub) GetByIDScoped(context.Context, *uuid.UUID, *uuid.UUID, uuid.UUID) (*domain.TransactionResponse, error) {

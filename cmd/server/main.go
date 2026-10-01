@@ -132,6 +132,7 @@ func main() {
 		duitkuWebhook:          txHandler.HandleDuitkuWebhook,
 		listTransactions:       txHandler.List,
 		salesSummary:           txHandler.SalesSummary,
+		exportTransactions:     txHandler.Export,
 		getTransaction:         txHandler.Get,
 		generateInternal:       txHandler.GenerateInternalSubscriptionPayment,
 		cancelInternal:         txHandler.CancelInternalEnrollmentPayment,

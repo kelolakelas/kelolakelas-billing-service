@@ -77,6 +77,24 @@ func (r *transactionRepository) List(ctx context.Context, tenantID, parentID *uu
 	if parentID != nil {
 		db = db.Where("parent_id = ?", *parentID)
 	}
+	db = applyTransactionFilters(db, query)
+	var total int64
+	if err := db.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var items []domain.Transaction
+	err := db.Order("created_at DESC").Limit(query.PageSize).Offset((query.Page - 1) * query.PageSize).Find(&items).Error
+	return items, total, err
+}
+
+// applyTransactionFilters adds the status, student, enrollment, search, and
+// date predicates shared by the paginated list and the CSV export, so the two
+// can never drift apart. The date basis is opt-in: anything but
+// `domain.TransactionDateByPaidAt` keeps the historical `created_at`
+// comparison exactly as before, while the `paid_at` basis filters the
+// half-open UTC interval [from, to+1 day) so the `to` date is inclusive for
+// every payment on that UTC day, matching the sales summary.
+func applyTransactionFilters(db *gorm.DB, query domain.TransactionQuery) *gorm.DB {
 	if query.Status != "" {
 		db = db.Where("status = ?", query.Status)
 	}
@@ -89,19 +107,60 @@ func (r *transactionRepository) List(ctx context.Context, tenantID, parentID *uu
 	if query.Search != "" {
 		db = db.Where("merchant_order_id ILIKE ? OR payment_intent_id ILIKE ?", "%"+query.Search+"%", "%"+query.Search+"%")
 	}
+	if query.DateBy == domain.TransactionDateByPaidAt {
+		if query.DateFrom != nil {
+			db = db.Where("paid_at >= ?", *query.DateFrom)
+		}
+		if query.DateTo != nil {
+			db = db.Where("paid_at < ?", query.DateTo.AddDate(0, 0, 1))
+		}
+		return db
+	}
 	if query.DateFrom != nil {
 		db = db.Where("created_at >= ?", *query.DateFrom)
 	}
 	if query.DateTo != nil {
 		db = db.Where("created_at <= ?", *query.DateTo)
 	}
-	var total int64
-	if err := db.Session(&gorm.Session{}).Count(&total).Error; err != nil {
-		return nil, 0, err
+	return db
+}
+
+// exportOrderBy is the deterministic export ordering for one date basis:
+// chronological so bookkeeping reads top to bottom, with the id tiebreak
+// keeping offset batches stable.
+func exportOrderBy(dateBy string) string {
+	if dateBy == domain.TransactionDateByPaidAt {
+		return "paid_at ASC NULLS LAST, id ASC"
 	}
-	var items []domain.Transaction
-	err := db.Order("created_at DESC").Limit(query.PageSize).Offset((query.Page - 1) * query.PageSize).Find(&items).Error
-	return items, total, err
+	return "created_at ASC, id ASC"
+}
+
+// IterateExport streams one tenant's filtered transactions to fn in batches
+// of batchSize rows, oldest first. The whole range is never loaded into one
+// slice, so a 366-day export stays bounded in memory. The caller picks the
+// batch size; a non-positive value falls back to a modest default.
+func (r *transactionRepository) IterateExport(ctx context.Context, tenantID uuid.UUID, query domain.TransactionQuery, batchSize int, fn func([]domain.Transaction) error) error {
+	if batchSize <= 0 {
+		batchSize = 500
+	}
+	for offset := 0; ; offset += batchSize {
+		var batch []domain.Transaction
+		db := r.db.WithContext(ctx).Model(&domain.Transaction{}).
+			Where("tenant_id = ?", tenantID)
+		db = applyTransactionFilters(db, query)
+		if err := db.Order(exportOrderBy(query.DateBy)).Limit(batchSize).Offset(offset).Find(&batch).Error; err != nil {
+			return err
+		}
+		if len(batch) == 0 {
+			return nil
+		}
+		if err := fn(batch); err != nil {
+			return err
+		}
+		if len(batch) < batchSize {
+			return nil
+		}
+	}
 }
 
 // SummarizePaid restricts both the tenant and the half-open UTC paid_at interval in SQL.
