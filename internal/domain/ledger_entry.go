@@ -18,3 +18,33 @@ type LedgerEntry struct {
 
 	Wallet *Wallet `gorm:"foreignKey:WalletID" json:"wallet,omitempty"`
 }
+
+// LedgerEntryResponse is one row of the tenant-visible mutation list (KEL-142).
+// Entries are append-only financial evidence: they are never updated or
+// deleted, only listed newest first.
+type LedgerEntryResponse struct {
+	ID            uuid.UUID `json:"id"`
+	ReferenceID   uuid.UUID `json:"reference_id"`
+	ReferenceType string    `json:"reference_type"`
+	Amount        int64     `json:"amount"`
+	EntryType     string    `json:"entry_type"`
+	Description   *string   `json:"description,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+// LedgerQuery carries the ledger pagination the handler parsed.
+type LedgerQuery struct {
+	Page     int
+	PageSize int
+}
+
+// LedgerListResponse mirrors TransactionListResponse pagination.
+type LedgerListResponse struct {
+	Items      []LedgerEntryResponse `json:"items"`
+	Pagination struct {
+		Page       int   `json:"page"`
+		PageSize   int   `json:"page_size"`
+		TotalItems int64 `json:"total_items"`
+		TotalPages int   `json:"total_pages"`
+	} `json:"pagination"`
+}

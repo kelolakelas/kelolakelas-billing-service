@@ -61,6 +61,8 @@ func main() {
 	subscriptionRepo := repository.NewSubscriptionRepository(db)
 	walletRepo := repository.NewWalletRepository(db)
 	ledgerRepo := repository.NewLedgerEntryRepository(db)
+	bankAccountRepo := repository.NewBankAccountRepository(db)
+	withdrawalRepo := repository.NewWithdrawalRepository(db)
 	txManager := repository.NewTransactionManager(db)
 	reconciliationRepo := repository.NewPaymentReconciliationRepository(db)
 
@@ -90,6 +92,8 @@ func main() {
 	// Initialize Handlers
 	txHandler := handler.NewTransactionHandler(txUsecase, duitkuClient)
 	reconciliationHandler := handler.NewReconciliationHandler(reconciliationAdmin)
+	walletHandler := handler.NewWalletHandler(usecase.NewWalletUsecase(walletRepo, ledgerRepo))
+	bankAccountHandler := handler.NewBankAccountHandler(usecase.NewBankAccountUsecase(bankAccountRepo, withdrawalRepo, txManager))
 
 	// Initialize Router
 	r := gin.New()
@@ -125,6 +129,13 @@ func main() {
 		cancelInternal:         txHandler.CancelInternalEnrollmentPayment,
 		listReconciliations:    reconciliationHandler.ListReconciliations,
 		requeueReconciliations: reconciliationHandler.RequeueTerminalFailedReconciliations,
+		walletBalance:          walletHandler.GetBalance,
+		listLedger:             walletHandler.ListLedger,
+		listBankAccounts:       bankAccountHandler.ListBankAccounts,
+		createBankAccount:      bankAccountHandler.CreateBankAccount,
+		updateBankAccount:      bankAccountHandler.UpdateBankAccount,
+		deleteBankAccount:      bankAccountHandler.DeleteBankAccount,
+		setPrimaryBankAccount:  bankAccountHandler.SetPrimaryBankAccount,
 	}, cfg.JWTSecret, cfg.InternalServiceCredential, permissionClient)
 
 	server := newHTTPServer(cfg, r)

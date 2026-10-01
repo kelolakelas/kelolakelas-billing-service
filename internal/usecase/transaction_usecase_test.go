@@ -301,6 +301,12 @@ func (l *ledgerRepoStub) Create(context.Context, *domain.LedgerEntry) error {
 func (l *ledgerRepoStub) GetByID(context.Context, uuid.UUID) (*domain.LedgerEntry, error) {
 	return nil, gorm.ErrRecordNotFound
 }
+func (l *ledgerRepoStub) ListByWallet(context.Context, uuid.UUID, int, int) ([]domain.LedgerEntry, int64, error) {
+	return nil, 0, nil
+}
+func (l *ledgerRepoStub) SumByWallet(context.Context, uuid.UUID) (int64, error) {
+	return 0, nil
+}
 
 type subscriptionRepoStub struct {
 	subscription *domain.Subscription

@@ -1,11 +1,51 @@
 basePath: /
 definitions:
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.BankAccountListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.BankAccountResponse'
+        type: array
+    type: object
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.BankAccountResponse:
+    properties:
+      account_name:
+        type: string
+      account_number:
+        type: string
+      bank_code:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: string
+      is_primary:
+        type: boolean
+    type: object
   github_com_kelolakelas_kelolakelas-billing-service_internal_domain.CancelEnrollmentPaymentRequest:
     properties:
       enrollment_id:
         type: string
     required:
     - enrollment_id
+    type: object
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.CreateBankAccountRequest:
+    properties:
+      account_name:
+        maxLength: 255
+        type: string
+      account_number:
+        maxLength: 255
+        type: string
+      bank_code:
+        maxLength: 255
+        type: string
+      is_primary:
+        type: boolean
+    required:
+    - account_name
+    - account_number
+    - bank_code
     type: object
   github_com_kelolakelas_kelolakelas-billing-service_internal_domain.DuitkuCallbackPayload:
     properties:
@@ -79,6 +119,10 @@ definitions:
           policy it reads from identity.
         minimum: 0
         type: integer
+      private_schedule_request:
+        description: Only the academic private approval caller sets this; it is not
+          an email destination.
+        type: boolean
       sender_email:
         description: |-
           SenderEmail is optional during the rollout. A non-empty value must be a real
@@ -128,6 +172,41 @@ definitions:
         type: string
       status:
         type: string
+    type: object
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.LedgerEntryResponse:
+    properties:
+      amount:
+        type: integer
+      created_at:
+        type: string
+      description:
+        type: string
+      entry_type:
+        type: string
+      id:
+        type: string
+      reference_id:
+        type: string
+      reference_type:
+        type: string
+    type: object
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.LedgerListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.LedgerEntryResponse'
+        type: array
+      pagination:
+        properties:
+          page:
+            type: integer
+          page_size:
+            type: integer
+          total_items:
+            type: integer
+          total_pages:
+            type: integer
+        type: object
     type: object
   github_com_kelolakelas_kelolakelas-billing-service_internal_domain.PaymentReconciliation:
     properties:
@@ -287,12 +366,338 @@ definitions:
       voucher_id:
         type: string
     type: object
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.UpdateBankAccountRequest:
+    properties:
+      account_name:
+        maxLength: 255
+        type: string
+      account_number:
+        maxLength: 255
+        type: string
+      bank_code:
+        maxLength: 255
+        type: string
+    type: object
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.WalletBalanceResponse:
+    properties:
+      available_balance:
+        type: integer
+      pending_balance:
+        type: integer
+    type: object
 info:
   contact: {}
   description: Billing and Payment Service for KelolaKelas Platform
   title: KelolaKelas Billing Service API
   version: "1.0"
 paths:
+  /api/v1/billing/bank-accounts:
+    get:
+      description: Tenant members with billing:withdraw only; parents are forbidden.
+        Account numbers are always masked to the last four digits. The primary account
+        is listed first.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.BankAccountListResponse'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List tenant payout bank accounts
+      tags:
+      - Billing
+    post:
+      consumes:
+      - application/json
+      description: Tenant members with billing:withdraw only; parents are forbidden.
+        The first account of a tenant always becomes primary. Account ownership is
+        verified manually by the platform admin at payout processing time; the service
+        only validates shape, never ownership.
+      parameters:
+      - description: Bank account details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.CreateBankAccountRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.BankAccountResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+      summary: Create a tenant payout bank account
+      tags:
+      - Billing
+  /api/v1/billing/bank-accounts/{id}:
+    delete:
+      description: 'Tenant members with billing:withdraw only; parents are forbidden.
+        The delete is a soft delete: history rows are never removed. A primary account
+        still backing a withdrawal in an active status answers 409.'
+      parameters:
+      - description: Bank account UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete a tenant payout bank account
+      tags:
+      - Billing
+    patch:
+      consumes:
+      - application/json
+      description: Tenant members with billing:withdraw only; parents are forbidden.
+        Only the supplied fields change; the primary slot never moves here, use the
+        set-primary endpoint for that.
+      parameters:
+      - description: Bank account UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.UpdateBankAccountRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.BankAccountResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+      summary: Update a tenant payout bank account
+      tags:
+      - Billing
+  /api/v1/billing/bank-accounts/{id}/set-primary:
+    post:
+      description: Tenant members with billing:withdraw only; parents are forbidden.
+        The primary slot moves without deleting any row, so payout history survives
+        the change. Concurrent promoters serialize on the storage backstop and the
+        loser answers 409.
+      parameters:
+      - description: Bank account UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.BankAccountResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Set the tenant primary payout bank account
+      tags:
+      - Billing
+  /api/v1/billing/ledger:
+    get:
+      description: Tenant members with billing:read only; parents are forbidden. Ledger
+        entries are append-only financial evidence, listed newest first. A tenant
+        without a wallet gets an empty page, not an error.
+      parameters:
+      - description: Page number, starting at 1
+        in: query
+        name: page
+        type: integer
+      - description: Entries per page, at most 100
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.LedgerListResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List tenant ledger mutations
+      tags:
+      - Billing
   /api/v1/billing/transactions:
     get:
       description: 'Parents see their own transactions. Tenant members need the `billing:read`
@@ -412,6 +817,45 @@ paths:
       security:
       - BearerAuth: []
       summary: Summarize paid tenant sales by currency and UTC paid date
+      tags:
+      - Billing
+  /api/v1/billing/wallet:
+    get:
+      description: 'Tenant members with billing:read only; parents are forbidden.
+        A tenant without a wallet gets a zero balance, not an error: sandbox callbacks
+        never credit the wallet or the ledger. On payment-only data the balance equals
+        the sum of the tenant''s ledger entries.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.WalletBalanceResponse'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get tenant wallet balance
       tags:
       - Billing
   /api/v1/billing/webhooks/duitku:

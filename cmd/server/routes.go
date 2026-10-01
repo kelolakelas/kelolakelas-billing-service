@@ -19,14 +19,24 @@ type routeHandlers struct {
 	cancelInternal         gin.HandlerFunc
 	listReconciliations    gin.HandlerFunc
 	requeueReconciliations gin.HandlerFunc
+	walletBalance          gin.HandlerFunc
+	listLedger             gin.HandlerFunc
+	listBankAccounts       gin.HandlerFunc
+	createBankAccount      gin.HandlerFunc
+	updateBankAccount      gin.HandlerFunc
+	deleteBankAccount      gin.HandlerFunc
+	setPrimaryBankAccount  gin.HandlerFunc
 }
 
 // registerRoutes mounts the public, protected, and internal billing routes.
 //
-// Only the two browser-facing transaction reads are subject to the `billing:read`
-// permission check (KEL-57, ADR 0024). The Duitku webhook keeps its HMAC check, and the
-// internal routes keep the static internal credential; neither is a tenant-member call,
-// so neither asks identity anything.
+// The browser-facing reads are subject to the `billing:read` permission check
+// (KEL-57, ADR 0024), and the wallet and ledger reads (KEL-142) are tenant-only
+// like the sales summary: parents are refused before identity or the handler
+// run. Payout-account writes (KEL-142) need `billing:withdraw`. The Duitku
+// webhook keeps its HMAC check, and the internal routes keep the static
+// internal credential; neither is a tenant-member call, so neither asks
+// identity anything.
 func registerRoutes(r gin.IRouter, h routeHandlers, jwtSecret, internalCredential string, permissions identity.PermissionClient) {
 	apiV1 := r.Group("/api/v1/billing")
 	apiV1.POST("/webhooks/duitku", h.duitkuWebhook)
@@ -36,6 +46,15 @@ func registerRoutes(r gin.IRouter, h routeHandlers, jwtSecret, internalCredentia
 	protected.GET("/transactions", readTransactions, h.listTransactions)
 	protected.GET("/transactions/summary", middleware.RequirePermission(permissions, middleware.PermissionBillingRead), h.salesSummary)
 	protected.GET("/transactions/:id", readTransactions, h.getTransaction)
+	billingRead := middleware.RequirePermission(permissions, middleware.PermissionBillingRead)
+	protected.GET("/wallet", billingRead, h.walletBalance)
+	protected.GET("/ledger", billingRead, h.listLedger)
+	billingWithdraw := middleware.RequirePermission(permissions, middleware.PermissionBillingWithdraw)
+	protected.GET("/bank-accounts", billingWithdraw, h.listBankAccounts)
+	protected.POST("/bank-accounts", billingWithdraw, h.createBankAccount)
+	protected.PATCH("/bank-accounts/:id", billingWithdraw, h.updateBankAccount)
+	protected.DELETE("/bank-accounts/:id", billingWithdraw, h.deleteBankAccount)
+	protected.POST("/bank-accounts/:id/set-primary", billingWithdraw, h.setPrimaryBankAccount)
 
 	internal := r.Group("/internal/billing")
 	internal.Use(middleware.InternalServiceAuth(internalCredential))

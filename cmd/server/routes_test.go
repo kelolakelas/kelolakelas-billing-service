@@ -25,10 +25,11 @@ const (
 // KEL-76 identity also denies a member_id whose membership was removed or no longer
 // carries the token's role; the removed set models those memberships.
 type identityStub struct {
-	grants  map[string]bool // role_id -> holds billing:read
-	removed map[string]bool // member_id -> membership no longer active with that role
-	err     error
-	calls   []string
+	grants   map[string]bool // role_id -> holds billing:read
+	withdraw map[string]bool // role_id -> holds billing:withdraw
+	removed  map[string]bool // member_id -> membership no longer active with that role
+	err      error
+	calls    []string
 }
 
 func (s *identityStub) CheckPermission(_ context.Context, tenantID, roleID, memberID, permission string) (bool, error) {
@@ -39,7 +40,14 @@ func (s *identityStub) CheckPermission(_ context.Context, tenantID, roleID, memb
 	if s.removed[memberID] {
 		return false, nil
 	}
-	return permission == middleware.PermissionBillingRead && s.grants[roleID], nil
+	switch permission {
+	case middleware.PermissionBillingRead:
+		return s.grants[roleID], nil
+	case middleware.PermissionBillingWithdraw:
+		return s.withdraw[roleID], nil
+	default:
+		return false, nil
+	}
 }
 
 func (*identityStub) Close() error { return nil }
@@ -67,6 +75,13 @@ func newRouteTestRouter(t *testing.T, stub *identityStub) (*gin.Engine, *routeRe
 		cancelInternal:         rec.handler("internal-cancel"),
 		listReconciliations:    rec.handler("internal-reconciliations"),
 		requeueReconciliations: rec.handler("internal-requeue"),
+		walletBalance:          rec.handler("wallet"),
+		listLedger:             rec.handler("ledger"),
+		listBankAccounts:       rec.handler("bank-list"),
+		createBankAccount:      rec.handler("bank-create"),
+		updateBankAccount:      rec.handler("bank-update"),
+		deleteBankAccount:      rec.handler("bank-delete"),
+		setPrimaryBankAccount:  rec.handler("bank-set-primary"),
 	}, routeTestSecret, routeTestCredential, stub)
 	return router, rec
 }
