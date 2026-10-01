@@ -208,6 +208,14 @@ definitions:
             type: integer
         type: object
     type: object
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.MarkWithdrawalPaidRequest:
+    properties:
+      transfer_reference:
+        maxLength: 255
+        type: string
+    required:
+    - transfer_reference
+    type: object
   github_com_kelolakelas_kelolakelas-billing-service_internal_domain.PaymentReconciliation:
     properties:
       attempt_count:
@@ -235,6 +243,59 @@ definitions:
       updated_at:
         type: string
     type: object
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.PlatformWithdrawalListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.PlatformWithdrawalResponse'
+        type: array
+      pagination:
+        properties:
+          page:
+            type: integer
+          page_size:
+            type: integer
+          total_items:
+            type: integer
+          total_pages:
+            type: integer
+        type: object
+    type: object
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.PlatformWithdrawalResponse:
+    properties:
+      account_name:
+        type: string
+      account_number:
+        type: string
+      admin_fee:
+        type: integer
+      amount:
+        type: integer
+      bank_code:
+        type: string
+      cancelled_at:
+        type: string
+      decided_at:
+        type: string
+      decided_by:
+        type: string
+      id:
+        type: string
+      net_amount:
+        type: integer
+      processed_at:
+        type: string
+      reject_reason:
+        type: string
+      requested_at:
+        type: string
+      status:
+        type: string
+      tenant_id:
+        type: string
+      transfer_reference:
+        type: string
+    type: object
   github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ReconciliationListResponse:
     properties:
       items:
@@ -248,6 +309,14 @@ definitions:
         type: integer
       requeued_at:
         type: string
+    type: object
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.RejectWithdrawalRequest:
+    properties:
+      reason:
+        maxLength: 2000
+        type: string
+    required:
+    - reason
     type: object
   github_com_kelolakelas_kelolakelas-billing-service_internal_domain.RequestWithdrawalRequest:
     properties:
@@ -430,15 +499,23 @@ definitions:
         type: string
       cancelled_at:
         type: string
+      decided_at:
+        type: string
+      decided_by:
+        type: string
       id:
         type: string
       net_amount:
         type: integer
       processed_at:
         type: string
+      reject_reason:
+        type: string
       requested_at:
         type: string
       status:
+        type: string
+      transfer_reference:
         type: string
     type: object
 info:
@@ -1171,6 +1248,181 @@ paths:
       security:
       - BearerAuth: []
       summary: Get one tenant payout withdrawal request
+      tags:
+      - Billing
+  /api/v1/platform/withdrawals:
+    get:
+      description: Active platform admins only; returns the frozen full payout destination.
+      parameters:
+      - description: Page number
+        in: query
+        name: page
+        type: integer
+      - description: Page size, maximum 100
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.PlatformWithdrawalListResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List pending manual withdrawals, oldest first
+      tags:
+      - Billing
+  /api/v1/platform/withdrawals/{id}/paid:
+    post:
+      consumes:
+      - application/json
+      description: Active platform admins only. Records a unique external transfer
+        reference and consumes the held balance atomically.
+      parameters:
+      - description: Withdrawal UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Transfer reference
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.MarkWithdrawalPaidRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.PlatformWithdrawalResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Record manual withdrawal payment
+      tags:
+      - Billing
+  /api/v1/platform/withdrawals/{id}/reject:
+    post:
+      consumes:
+      - application/json
+      description: Active platform admins only. Returns held balance to available
+        and records the rejection reason atomically.
+      parameters:
+      - description: Withdrawal UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Reason
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.RejectWithdrawalRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.PlatformWithdrawalResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Reject a manual withdrawal
       tags:
       - Billing
   /internal/billing/reconciliations:

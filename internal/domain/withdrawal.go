@@ -32,7 +32,8 @@ var (
 	ErrWithdrawalNotFound = errors.New("withdrawal not found")
 	// ErrWithdrawalInvalidState answers 409: the withdrawal is no longer in
 	// `requested`, so the tenant cancel no longer applies.
-	ErrWithdrawalInvalidState = errors.New("withdrawal cannot be cancelled in its current status")
+	ErrWithdrawalInvalidState       = errors.New("withdrawal cannot be cancelled in its current status")
+	ErrWithdrawalDuplicateReference = errors.New("transfer reference already used")
 )
 
 // Withdrawal statuses. `requested` and `processing` are the open states in
@@ -47,19 +48,20 @@ const (
 	WithdrawalStatusCancelled  = "cancelled"
 	WithdrawalStatusCompleted  = "completed"
 	WithdrawalStatusFailed     = "failed"
+	WithdrawalStatusPaid       = "paid"
+	WithdrawalStatusRejected   = "rejected"
 )
 
-// Ledger evidence for the withdrawal flow (KEL-143). A request writes one
-// `withdrawal_hold` entry for -amount and a tenant cancel writes one
-// `withdrawal_release` entry for +amount, both with reference_type
-// `withdrawal` pointing at the withdrawal id. Together with the
-// `payment_received` entries the paid callback writes, the signed ledger sum
-// always equals the wallet's available balance.
+// Ledger evidence for withdrawals. A request holds -amount; cancel/reject
+// releases +amount. Paying releases +amount and records an external outflow
+// of -amount. The signed sum remains the available balance, while the open
+// requested/processing rows equal the held balance.
 const (
 	WithdrawalReferenceType = "withdrawal"
 	LedgerEntryTypeHold     = "withdrawal_hold"
 	LedgerEntryTypeRelease  = "withdrawal_release"
 	LedgerEntryTypePayment  = "payment_received"
+	LedgerEntryTypePaid     = "withdrawal_paid"
 )
 
 type Withdrawal struct {
@@ -83,6 +85,10 @@ type Withdrawal struct {
 	AccountNumberSnapshot string     `gorm:"type:varchar(255);not null;default:''" json:"-"`
 	AccountNameSnapshot   string     `gorm:"type:varchar(255);not null;default:''" json:"-"`
 	CancelledAt           *time.Time `gorm:"type:timestamp" json:"cancelled_at,omitempty"`
+	DecidedBy             *uuid.UUID `gorm:"type:uuid" json:"decided_by,omitempty"`
+	DecidedAt             *time.Time `gorm:"type:timestamp" json:"decided_at,omitempty"`
+	TransferReference     *string    `gorm:"type:varchar(255)" json:"transfer_reference,omitempty"`
+	RejectReason          *string    `gorm:"type:text" json:"reject_reason,omitempty"`
 
 	BankAccount *BankAccount `gorm:"foreignKey:BankAccountID" json:"bank_account,omitempty"`
 }
@@ -115,17 +121,51 @@ type WithdrawalQuery struct {
 // account number is always masked like the bank-account list, so a leaked
 // response never exposes a full account number.
 type WithdrawalResponse struct {
-	ID            uuid.UUID  `json:"id"`
-	Amount        int64      `json:"amount"`
-	AdminFee      int64      `json:"admin_fee"`
-	NetAmount     int64      `json:"net_amount"`
-	Status        string     `json:"status"`
-	BankCode      string     `json:"bank_code"`
-	AccountNumber string     `json:"account_number"`
-	AccountName   string     `json:"account_name"`
-	RequestedAt   time.Time  `json:"requested_at"`
-	ProcessedAt   *time.Time `json:"processed_at,omitempty"`
-	CancelledAt   *time.Time `json:"cancelled_at,omitempty"`
+	ID                uuid.UUID  `json:"id"`
+	Amount            int64      `json:"amount"`
+	AdminFee          int64      `json:"admin_fee"`
+	NetAmount         int64      `json:"net_amount"`
+	Status            string     `json:"status"`
+	BankCode          string     `json:"bank_code"`
+	AccountNumber     string     `json:"account_number"`
+	AccountName       string     `json:"account_name"`
+	RequestedAt       time.Time  `json:"requested_at"`
+	ProcessedAt       *time.Time `json:"processed_at,omitempty"`
+	CancelledAt       *time.Time `json:"cancelled_at,omitempty"`
+	DecidedBy         *uuid.UUID `json:"decided_by,omitempty"`
+	DecidedAt         *time.Time `json:"decided_at,omitempty"`
+	TransferReference *string    `json:"transfer_reference,omitempty"`
+	RejectReason      *string    `json:"reject_reason,omitempty"`
+}
+
+// PlatformWithdrawalResponse is deliberately separate: tenant responses always mask
+// account numbers, whereas an authorized operator needs the frozen full destination.
+type PlatformWithdrawalResponse struct {
+	WithdrawalResponse
+	TenantID uuid.UUID `json:"tenant_id"`
+}
+
+func ToPlatformWithdrawalResponse(w *Withdrawal) *PlatformWithdrawalResponse {
+	out := ToWithdrawalResponse(w)
+	out.AccountNumber = w.AccountNumberSnapshot
+	return &PlatformWithdrawalResponse{WithdrawalResponse: *out, TenantID: w.TenantID}
+}
+
+type PlatformWithdrawalListResponse struct {
+	Items      []PlatformWithdrawalResponse `json:"items"`
+	Pagination struct {
+		Page       int   `json:"page"`
+		PageSize   int   `json:"page_size"`
+		TotalItems int64 `json:"total_items"`
+		TotalPages int   `json:"total_pages"`
+	} `json:"pagination"`
+}
+
+type MarkWithdrawalPaidRequest struct {
+	TransferReference string `json:"transfer_reference" binding:"required,max=255"`
+}
+type RejectWithdrawalRequest struct {
+	Reason string `json:"reason" binding:"required,max=2000"`
 }
 
 // WithdrawalListResponse mirrors LedgerListResponse pagination.
@@ -141,17 +181,21 @@ type WithdrawalListResponse struct {
 
 func ToWithdrawalResponse(w *Withdrawal) *WithdrawalResponse {
 	return &WithdrawalResponse{
-		ID:            w.ID,
-		Amount:        w.Amount,
-		AdminFee:      w.AdminFee,
-		NetAmount:     w.NetAmount,
-		Status:        w.Status,
-		BankCode:      w.BankCodeSnapshot,
-		AccountNumber: MaskAccountNumber(w.AccountNumberSnapshot),
-		AccountName:   w.AccountNameSnapshot,
-		RequestedAt:   w.RequestedAt,
-		ProcessedAt:   w.ProcessedAt,
-		CancelledAt:   w.CancelledAt,
+		ID:                w.ID,
+		Amount:            w.Amount,
+		AdminFee:          w.AdminFee,
+		NetAmount:         w.NetAmount,
+		Status:            w.Status,
+		BankCode:          w.BankCodeSnapshot,
+		AccountNumber:     MaskAccountNumber(w.AccountNumberSnapshot),
+		AccountName:       w.AccountNameSnapshot,
+		RequestedAt:       w.RequestedAt,
+		ProcessedAt:       w.ProcessedAt,
+		CancelledAt:       w.CancelledAt,
+		DecidedBy:         w.DecidedBy,
+		DecidedAt:         w.DecidedAt,
+		TransferReference: w.TransferReference,
+		RejectReason:      w.RejectReason,
 	}
 }
 

@@ -63,6 +63,14 @@ func (r *routeRecorder) handler(name string) gin.HandlerFunc {
 
 func newRouteTestRouter(t *testing.T, stub *identityStub) (*gin.Engine, *routeRecorder) {
 	t.Helper()
+	return newPlatformTestRouterWithPermissions(&platformStub{allowed: true}, stub)
+}
+
+func newPlatformTestRouter(admin *platformStub) (*gin.Engine, *routeRecorder) {
+	return newPlatformTestRouterWithPermissions(admin, &identityStub{})
+}
+
+func newPlatformTestRouterWithPermissions(admin *platformStub, stub *identityStub) (*gin.Engine, *routeRecorder) {
 	gin.SetMode(gin.TestMode)
 	rec := &routeRecorder{hits: map[string]int{}}
 	router := gin.New()
@@ -86,7 +94,10 @@ func newRouteTestRouter(t *testing.T, stub *identityStub) (*gin.Engine, *routeRe
 		cancelWithdrawal:       rec.handler("withdrawal-cancel"),
 		getWithdrawal:          rec.handler("withdrawal-get"),
 		listWithdrawals:        rec.handler("withdrawal-list"),
-	}, routeTestSecret, routeTestCredential, stub)
+		platformWithdrawals:    rec.handler("platform-withdrawal-list"),
+		platformMarkPaid:       rec.handler("platform-withdrawal-paid"),
+		platformReject:         rec.handler("platform-withdrawal-reject"),
+	}, routeTestSecret, routeTestCredential, stub, admin)
 	return router, rec
 }
 

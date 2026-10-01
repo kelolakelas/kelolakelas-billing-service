@@ -24,11 +24,13 @@ func InternalServiceAuth(credential string) gin.HandlerFunc {
 }
 
 type Claims struct {
-	UserID   string `json:"user_id"`
-	TenantID string `json:"tenant_id"`
-	RoleID   string `json:"role_id"`
-	MemberID string `json:"member_id"`
-	IsParent bool   `json:"is_parent"`
+	UserID                string `json:"user_id"`
+	TenantID              string `json:"tenant_id"`
+	RoleID                string `json:"role_id"`
+	MemberID              string `json:"member_id"`
+	IsParent              bool   `json:"is_parent"`
+	IsPlatformAdmin       bool   `json:"is_platform_admin"`
+	PlatformFactorVersion int64  `json:"platform_factor_version"`
 	jwt.RegisteredClaims
 }
 
@@ -57,6 +59,8 @@ func AuthMiddleware(secret string) gin.HandlerFunc {
 		c.Set("role_id", claims.RoleID)
 		c.Set("member_id", claims.MemberID)
 		c.Set("is_parent", claims.IsParent)
+		c.Set("is_platform_admin", claims.IsPlatformAdmin)
+		c.Set("platform_factor_version", claims.PlatformFactorVersion)
 		c.Next()
 	}
 }
