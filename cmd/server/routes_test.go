@@ -78,6 +78,7 @@ func newPlatformTestRouterWithPermissions(admin *platformStub, stub *identityStu
 		duitkuWebhook:          rec.handler("webhook"),
 		listTransactions:       rec.handler("list"),
 		salesSummary:           rec.handler("summary"),
+		exportTransactions:     rec.handler("export"),
 		getTransaction:         rec.handler("get"),
 		generateInternal:       rec.handler("internal-generate"),
 		cancelInternal:         rec.handler("internal-cancel"),
@@ -312,6 +313,53 @@ func TestSalesSummaryRequiresBillingReadAndRefusesParents(t *testing.T) {
 	stub.err = errors.New("identity down")
 	if got := serve(router, http.MethodGet, target, creator, nil); got.Code != http.StatusServiceUnavailable {
 		t.Fatalf("identity down status=%d, want 503", got.Code)
+	}
+}
+
+// KEL-147: the CSV export is a tenant-member read like the sales summary. It
+// needs billing:read, and a parent token is refused before identity or the
+// handler run, even if it carries a tenant claim. The export path must not be
+// captured by /transactions/:id.
+func TestTransactionExportRequiresBillingReadAndRefusesParents(t *testing.T) {
+	tenantID := uuid.NewString()
+	creatorRole, teacherRole := uuid.NewString(), uuid.NewString()
+	stub := &identityStub{grants: map[string]bool{creatorRole: true}}
+	router, rec := newRouteTestRouter(t, stub)
+	const target = "/api/v1/billing/transactions/export?date_from=2026-09-01&date_to=2026-09-30"
+
+	creator := signToken(t, middleware.Claims{UserID: uuid.NewString(), TenantID: tenantID, RoleID: creatorRole, MemberID: uuid.NewString()})
+	if got := serve(router, http.MethodGet, target, creator, nil); got.Code != http.StatusOK {
+		t.Fatalf("Creator status=%d, want 200", got.Code)
+	}
+	if rec.hits["export"] != 1 || rec.hits["get"] != 0 {
+		t.Fatalf("hits=%v, want the export handler and not the detail route", rec.hits)
+	}
+	if want := tenantID + "|" + creatorRole; len(stub.calls) != 1 || stub.calls[0][:len(want)] != want {
+		t.Fatalf("identity calls=%v, want the token tenant and role", stub.calls)
+	}
+
+	teacher := signToken(t, middleware.Claims{UserID: uuid.NewString(), TenantID: tenantID, RoleID: teacherRole, MemberID: uuid.NewString()})
+	if got := serve(router, http.MethodGet, target, teacher, nil); got.Code != http.StatusForbidden {
+		t.Fatalf("Teacher status=%d, want 403", got.Code)
+	}
+
+	callsBefore := len(stub.calls)
+	for name, claims := range map[string]middleware.Claims{
+		"parent":                   {UserID: uuid.NewString(), IsParent: true},
+		"parent with tenant claim": {UserID: uuid.NewString(), IsParent: true, TenantID: tenantID, RoleID: creatorRole, MemberID: uuid.NewString()},
+	} {
+		if got := serve(router, http.MethodGet, target, signToken(t, claims), nil); got.Code != http.StatusForbidden {
+			t.Fatalf("%s status=%d, want 403", name, got.Code)
+		}
+	}
+	if len(stub.calls) != callsBefore {
+		t.Fatal("a parent token reached identity")
+	}
+	if got := serve(router, http.MethodGet, target, "", nil); got.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous status=%d, want 401", got.Code)
+	}
+	if rec.hits["export"] != 1 {
+		t.Fatalf("export hits=%d, refused callers must not reach the handler", rec.hits["export"])
 	}
 }
 

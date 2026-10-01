@@ -23,10 +23,11 @@ type TransactionHandler struct {
 
 // List godoc
 // @Summary List billing transactions
-// @Description Parents see their own transactions. Tenant members need the `billing:read` permission in their tenant: without it the answer is 403, and while identity cannot be asked it is 503.
+// @Description Parents see their own transactions. Tenant members need the `billing:read` permission in their tenant: without it the answer is 403, and while identity cannot be asked it is 503. The date_from/date_to range filters on created_at by default; pass date_by=paid_at to filter on the payment date with inclusive UTC-day semantics matching the sales summary (ADR 0039).
 // @Tags Billing
 // @Produce json
 // @Security BearerAuth
+// @Param date_by query string false "Date basis: created_at (default) or paid_at"
 // @Success 200 {object} domain.HTTPResponse{data=domain.TransactionListResponse}
 // @Failure 403 {object} domain.ErrorResponse
 // @Failure 503 {object} domain.ErrorResponse
@@ -41,11 +42,18 @@ func (h *TransactionHandler) List(c *gin.Context) {
 			return
 		}
 	}
-	q := domain.TransactionQuery{Page: 1, PageSize: 20, Status: c.Query("status"), Search: c.Query("search")}
+	q := domain.TransactionQuery{Page: 1, PageSize: 20, Status: c.Query("status"), Search: c.Query("search"), DateBy: c.Query("date_by")}
 	if q.Status != "" && !domain.IsTransactionStatusFilterValue(q.Status) {
 		// The accepted values come from the domain instead of a local list, so every
 		// status the code can actually write stays filterable and cannot drift.
 		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Invalid transaction status", "data": nil})
+		return
+	}
+	if !domain.IsTransactionDateByValue(q.DateBy) {
+		// An unknown basis must be rejected: silently falling back to
+		// `created_at` would return rows the caller did not ask for while
+		// looking like an empty paid-date range.
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Invalid date basis", "data": nil})
 		return
 	}
 	for key, target := range map[string]*int{"page": &q.Page, "page_size": &q.PageSize} {
@@ -152,6 +160,111 @@ func (h *TransactionHandler) SalesSummary(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "success", "message": "Sales summary fetched successfully", "data": domain.SalesSummaryResponse{
 		From: from.Format("2006-01-02"), To: to.Format("2006-01-02"), Totals: totals,
 	}})
+}
+
+// Export godoc
+// @Summary Export tenant transactions as CSV
+// @Description Tenant members with billing:read only; parents are forbidden. Accepts the same filters as the list (status, student_id, enrollment_id, search, date_from, date_to, date_by) but defaults to paid transactions on the paid date over the last 30 UTC days, so the default export reconciles with the sales summary. Days are inclusive YYYY-MM-DD UTC (ADR 0039: a UTC day ends at 07:00 WIB), at most 366 calendar days. Rows stream in batches, so a full-range export never loads fully into memory. Cells starting with `=`, `+`, `-`, or `@` carry a leading single quote so spreadsheets render them as text.
+// @Tags Billing
+// @Produce text/csv
+// @Security BearerAuth
+// @Param status query string false "Transaction status, defaults to paid"
+// @Param student_id query string false "Student UUID"
+// @Param enrollment_id query string false "Enrollment UUID"
+// @Param search query string false "Merchant order or payment intent substring"
+// @Param date_from query string false "First UTC date (YYYY-MM-DD)"
+// @Param date_to query string false "Last UTC date (YYYY-MM-DD)"
+// @Param date_by query string false "Date basis: created_at or paid_at, defaults to paid_at"
+// @Success 200 {string} string "CSV bytes"
+// @Failure 400 {object} domain.ErrorResponse
+// @Failure 401 {object} domain.ErrorResponse
+// @Failure 403 {object} domain.ErrorResponse
+// @Failure 500 {object} domain.ErrorResponse
+// @Failure 503 {object} domain.ErrorResponse
+// @Router /api/v1/billing/transactions/export [get]
+func (h *TransactionHandler) Export(c *gin.Context) {
+	if c.GetBool("is_parent") {
+		c.JSON(http.StatusForbidden, gin.H{"status": "error", "message": "Permission denied", "data": nil})
+		return
+	}
+	tenantID, err := uuid.Parse(c.GetString("tenant_id"))
+	if err != nil || tenantID == uuid.Nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"status": "error", "message": "Invalid tenant context", "data": nil})
+		return
+	}
+	q := domain.TransactionQuery{Status: c.Query("status"), Search: c.Query("search"), DateBy: c.Query("date_by")}
+	if q.Status == "" {
+		// The export exists to reconcile bookkeeping with the sales summary,
+		// which only ever counts paid transactions.
+		q.Status = domain.TransactionStatusPaid
+	}
+	if q.Status != "" && !domain.IsTransactionStatusFilterValue(q.Status) {
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Invalid transaction status", "data": nil})
+		return
+	}
+	if q.DateBy == "" {
+		// Same reason: the default export must match the summary's paid-date days.
+		q.DateBy = domain.TransactionDateByPaidAt
+	}
+	if !domain.IsTransactionDateByValue(q.DateBy) {
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Invalid date basis", "data": nil})
+		return
+	}
+	for key, target := range map[string]**uuid.UUID{"student_id": &q.StudentID, "enrollment_id": &q.EnrollmentID} {
+		if v := c.Query(key); v != "" {
+			id, e := uuid.Parse(v)
+			if e != nil {
+				c.JSON(400, gin.H{"status": "error", "message": "Invalid " + key, "data": nil})
+				return
+			}
+			*target = &id
+		}
+	}
+	// Date-only parameters use UTC calendar days, independent of server
+	// timezone (ADR 0039): a UTC day ends at 07:00 WIB. Absent bounds default
+	// to the summary window (today and the preceding 29 days).
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	from, to := today.AddDate(0, 0, -29), today
+	if raw, present := c.GetQuery("date_from"); present {
+		if raw == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Invalid transaction date range", "data": nil})
+			return
+		}
+		from, err = time.Parse("2006-01-02", raw)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Invalid transaction date range", "data": nil})
+			return
+		}
+	}
+	if raw, present := c.GetQuery("date_to"); present {
+		if raw == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Invalid transaction date range", "data": nil})
+			return
+		}
+		to, err = time.Parse("2006-01-02", raw)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Invalid transaction date range", "data": nil})
+			return
+		}
+	}
+	if from.After(to) || to.AddDate(0, 0, 1).Sub(from) > 366*24*time.Hour {
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Invalid transaction date range", "data": nil})
+		return
+	}
+	q.DateFrom, q.DateTo = &from, &to
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", `attachment; filename="transactions-`+from.Format("2006-01-02")+`_to_`+to.Format("2006-01-02")+`.csv"`)
+	if _, err := h.txUsecase.ExportTransactions(c.Request.Context(), tenantID, q, c.Writer); err != nil {
+		// KEL-61: the raw error may carry internal details, so it is logged
+		// server-side. When the first batch already flushed, the 200 headers
+		// are gone and only truncating the stream is left.
+		slog.ErrorContext(c.Request.Context(), "transaction export failed", "error", err)
+		if !c.Writer.Written() {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "Failed to export transactions", "data": nil})
+			return
+		}
+		c.Writer.Flush()
+	}
 }
 
 // Get godoc

@@ -14,6 +14,7 @@ type routeHandlers struct {
 	duitkuWebhook          gin.HandlerFunc
 	listTransactions       gin.HandlerFunc
 	salesSummary           gin.HandlerFunc
+	exportTransactions     gin.HandlerFunc
 	getTransaction         gin.HandlerFunc
 	generateInternal       gin.HandlerFunc
 	cancelInternal         gin.HandlerFunc
@@ -53,6 +54,10 @@ func registerRoutes(r gin.IRouter, h routeHandlers, jwtSecret, internalCredentia
 	readTransactions := middleware.RequirePermissionUnlessParent(permissions, middleware.PermissionBillingRead)
 	protected.GET("/transactions", readTransactions, h.listTransactions)
 	protected.GET("/transactions/summary", middleware.RequirePermission(permissions, middleware.PermissionBillingRead), h.salesSummary)
+	// The static export path must stay registered before the detail route is
+	// read alongside it: gin prefers the static segment, and the explicit row
+	// keeps that contract pinned in the route test.
+	protected.GET("/transactions/export", middleware.RequirePermission(permissions, middleware.PermissionBillingRead), h.exportTransactions)
 	protected.GET("/transactions/:id", readTransactions, h.getTransaction)
 	billingRead := middleware.RequirePermission(permissions, middleware.PermissionBillingRead)
 	protected.GET("/wallet", billingRead, h.walletBalance)

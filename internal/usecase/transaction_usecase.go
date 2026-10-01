@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"io"
 	"log/slog"
 	"math"
 	"strconv"
@@ -659,6 +660,42 @@ func (u *transactionUsecase) SalesSummary(ctx context.Context, tenantID uuid.UUI
 		return nil, fmt.Errorf("sales summary repository unavailable")
 	}
 	return repo.SummarizePaid(ctx, tenantID, from, until)
+}
+
+// transactionExportBatchSize bounds how many rows one CSV batch holds in
+// memory. Small enough to stay flat, large enough to avoid a query per row.
+const transactionExportBatchSize = 500
+
+func (u *transactionUsecase) ExportTransactions(ctx context.Context, tenantID uuid.UUID, query domain.TransactionQuery, w io.Writer) (int64, error) {
+	repo, ok := u.txRepo.(repository.TransactionExportRepository)
+	if !ok {
+		return 0, fmt.Errorf("transaction export repository unavailable")
+	}
+	writer := domain.NewTransactionExportWriter(w)
+	if err := domain.WriteTransactionExportHeader(writer); err != nil {
+		return 0, fmt.Errorf("failed to write export header: %w", err)
+	}
+	var rows int64
+	err := repo.IterateExport(ctx, tenantID, query, transactionExportBatchSize, func(batch []domain.Transaction) error {
+		for i := range batch {
+			if err := domain.WriteTransactionExportRow(writer, batch[i]); err != nil {
+				return fmt.Errorf("failed to write export row: %w", err)
+			}
+			rows++
+		}
+		// Flush per batch so the client starts receiving rows while the
+		// range is still being read, and memory stays bounded by the batch.
+		writer.Flush()
+		return writer.Error()
+	})
+	if err != nil {
+		return rows, err
+	}
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return rows, fmt.Errorf("failed to flush export: %w", err)
+	}
+	return rows, nil
 }
 
 func (u *transactionUsecase) List(ctx context.Context, tenantID, parentID *uuid.UUID, query domain.TransactionQuery) (*domain.TransactionListResponse, error) {

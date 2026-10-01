@@ -835,7 +835,14 @@ paths:
     get:
       description: 'Parents see their own transactions. Tenant members need the `billing:read`
         permission in their tenant: without it the answer is 403, and while identity
-        cannot be asked it is 503.'
+        cannot be asked it is 503. The date_from/date_to range filters on created_at
+        by default; pass date_by=paid_at to filter on the payment date with inclusive
+        UTC-day semantics matching the sales summary (ADR 0039).'
+      parameters:
+      - description: 'Date basis: created_at (default) or paid_at'
+        in: query
+        name: date_by
+        type: string
       produces:
       - application/json
       responses:
@@ -899,6 +906,77 @@ paths:
       security:
       - BearerAuth: []
       summary: Get billing transaction
+      tags:
+      - Billing
+  /api/v1/billing/transactions/export:
+    get:
+      description: 'Tenant members with billing:read only; parents are forbidden.
+        Accepts the same filters as the list (status, student_id, enrollment_id, search,
+        date_from, date_to, date_by) but defaults to paid transactions on the paid
+        date over the last 30 UTC days, so the default export reconciles with the
+        sales summary. Days are inclusive YYYY-MM-DD UTC (ADR 0039: a UTC day ends
+        at 07:00 WIB), at most 366 calendar days. Rows stream in batches, so a full-range
+        export never loads fully into memory. Cells starting with `=`, `+`, `-`, or
+        `@` carry a leading single quote so spreadsheets render them as text.'
+      parameters:
+      - description: Transaction status, defaults to paid
+        in: query
+        name: status
+        type: string
+      - description: Student UUID
+        in: query
+        name: student_id
+        type: string
+      - description: Enrollment UUID
+        in: query
+        name: enrollment_id
+        type: string
+      - description: Merchant order or payment intent substring
+        in: query
+        name: search
+        type: string
+      - description: First UTC date (YYYY-MM-DD)
+        in: query
+        name: date_from
+        type: string
+      - description: Last UTC date (YYYY-MM-DD)
+        in: query
+        name: date_to
+        type: string
+      - description: 'Date basis: created_at or paid_at, defaults to paid_at'
+        in: query
+        name: date_by
+        type: string
+      produces:
+      - text/csv
+      responses:
+        "200":
+          description: CSV bytes
+          schema:
+            type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Export tenant transactions as CSV
       tags:
       - Billing
   /api/v1/billing/transactions/summary:
