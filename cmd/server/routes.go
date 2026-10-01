@@ -30,6 +30,9 @@ type routeHandlers struct {
 	cancelWithdrawal       gin.HandlerFunc
 	getWithdrawal          gin.HandlerFunc
 	listWithdrawals        gin.HandlerFunc
+	platformWithdrawals    gin.HandlerFunc
+	platformMarkPaid       gin.HandlerFunc
+	platformReject         gin.HandlerFunc
 }
 
 // registerRoutes mounts the public, protected, and internal billing routes.
@@ -42,7 +45,7 @@ type routeHandlers struct {
 // webhook keeps its HMAC check, and the internal routes keep the static
 // internal credential; neither is a tenant-member call, so neither asks
 // identity anything.
-func registerRoutes(r gin.IRouter, h routeHandlers, jwtSecret, internalCredential string, permissions identity.PermissionClient) {
+func registerRoutes(r gin.IRouter, h routeHandlers, jwtSecret, internalCredential string, permissions identity.PermissionClient, admins identity.PlatformAdminClient) {
 	apiV1 := r.Group("/api/v1/billing")
 	apiV1.POST("/webhooks/duitku", h.duitkuWebhook)
 	protected := apiV1.Group("")
@@ -64,6 +67,12 @@ func registerRoutes(r gin.IRouter, h routeHandlers, jwtSecret, internalCredentia
 	protected.GET("/withdrawals", billingWithdraw, h.listWithdrawals)
 	protected.GET("/withdrawals/:id", billingWithdraw, h.getWithdrawal)
 	protected.DELETE("/withdrawals/:id", billingWithdraw, h.cancelWithdrawal)
+
+	platform := r.Group("/api/v1/platform/withdrawals")
+	platform.Use(middleware.AuthMiddleware(jwtSecret), middleware.RequireActivePlatform(admins))
+	platform.GET("", h.platformWithdrawals)
+	platform.POST("/:id/paid", h.platformMarkPaid)
+	platform.POST("/:id/reject", h.platformReject)
 
 	internal := r.Group("/internal/billing")
 	internal.Use(middleware.InternalServiceAuth(internalCredential))

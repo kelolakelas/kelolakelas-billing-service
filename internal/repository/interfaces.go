@@ -82,6 +82,14 @@ type WithdrawalRepository interface {
 	ClaimCancelled(ctx context.Context, tenantID, id uuid.UUID, now time.Time) (bool, error)
 }
 
+// PlatformWithdrawalRepository is separate to keep existing tenant test doubles
+// and tenant-scoped repository contracts unchanged.
+type PlatformWithdrawalRepository interface {
+	ListRequested(ctx context.Context, page, pageSize int) ([]domain.Withdrawal, int64, error)
+	ClaimDecision(ctx context.Context, id, adminID uuid.UUID, status, detail string, now time.Time) (bool, error)
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.Withdrawal, error)
+}
+
 type VoucherRepository interface {
 	Create(ctx context.Context, voucher *domain.Voucher) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Voucher, error)

@@ -95,6 +95,7 @@ func main() {
 	walletHandler := handler.NewWalletHandler(usecase.NewWalletUsecase(walletRepo, ledgerRepo))
 	bankAccountHandler := handler.NewBankAccountHandler(usecase.NewBankAccountUsecase(bankAccountRepo, withdrawalRepo, txManager))
 	withdrawalHandler := handler.NewWithdrawalHandler(usecase.NewWithdrawalUsecase(walletRepo, ledgerRepo, bankAccountRepo, withdrawalRepo, txManager, cfg.WithdrawalMinimumAmount))
+	platformWithdrawalHandler := handler.NewPlatformWithdrawalHandler(usecase.NewPlatformWithdrawalUsecase(withdrawalRepo, walletRepo, ledgerRepo, txManager))
 
 	// Initialize Router
 	r := gin.New()
@@ -121,6 +122,12 @@ func main() {
 		os.Exit(1)
 	}
 	defer permissionClient.Close()
+	platformClient, err := identity.NewPlatformAdminClient(cfg.IdentityGRPCHost, time.Duration(cfg.IdentityPermissionTimeoutMs)*time.Millisecond)
+	if err != nil {
+		slog.Error("Failed to initialize platform authorization client", "error", err)
+		os.Exit(1)
+	}
+	defer platformClient.Close()
 	registerRoutes(r, routeHandlers{
 		duitkuWebhook:          txHandler.HandleDuitkuWebhook,
 		listTransactions:       txHandler.List,
@@ -141,7 +148,10 @@ func main() {
 		cancelWithdrawal:       withdrawalHandler.CancelWithdrawal,
 		getWithdrawal:          withdrawalHandler.GetWithdrawal,
 		listWithdrawals:        withdrawalHandler.ListWithdrawals,
-	}, cfg.JWTSecret, cfg.InternalServiceCredential, permissionClient)
+		platformWithdrawals:    platformWithdrawalHandler.ListRequested,
+		platformMarkPaid:       platformWithdrawalHandler.MarkPaid,
+		platformReject:         platformWithdrawalHandler.Reject,
+	}, cfg.JWTSecret, cfg.InternalServiceCredential, permissionClient, platformClient)
 
 	server := newHTTPServer(cfg, r)
 	// The workers and the HTTP server stop on the same signal context; KEL-71 only

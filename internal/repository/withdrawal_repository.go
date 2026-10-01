@@ -14,7 +14,7 @@ type withdrawalRepository struct {
 	db *gorm.DB
 }
 
-func NewWithdrawalRepository(db *gorm.DB) WithdrawalRepository {
+func NewWithdrawalRepository(db *gorm.DB) *withdrawalRepository {
 	return &withdrawalRepository{db: db}
 }
 
@@ -102,6 +102,32 @@ func (r *withdrawalRepository) ListByTenant(ctx context.Context, tenantID uuid.U
 // row was actually moved: of any number of concurrent cancellers (or a tenant
 // cancel racing a future admin processing step) exactly one reports true and
 // the losers see the state the winner left instead of overwriting it.
+// ListRequested is the oldest-first cross-tenant operator queue.
+func (r *withdrawalRepository) ListRequested(ctx context.Context, page, pageSize int) ([]domain.Withdrawal, int64, error) {
+	var total int64
+	db := GetDB(ctx, r.db).Model(&domain.Withdrawal{}).Where("status = ?", domain.WithdrawalStatusRequested)
+	if err := db.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var rows []domain.Withdrawal
+	err := db.Order("requested_at ASC").Order("id ASC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&rows).Error
+	return rows, total, err
+}
+
+func (r *withdrawalRepository) ClaimDecision(ctx context.Context, id, adminID uuid.UUID, decision, detail string, now time.Time) (bool, error) {
+	updates := map[string]interface{}{"status": decision, "decided_by": adminID, "decided_at": now, "processed_at": now}
+	if decision == domain.WithdrawalStatusPaid {
+		updates["transfer_reference"] = detail
+	} else {
+		updates["reject_reason"] = detail
+	}
+	result := GetDB(ctx, r.db).Model(&domain.Withdrawal{}).Where("id = ? AND status = ?", id, domain.WithdrawalStatusRequested).Updates(updates)
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected == 1, nil
+}
+
 func (r *withdrawalRepository) ClaimCancelled(ctx context.Context, tenantID, id uuid.UUID, now time.Time) (bool, error) {
 	result := GetDB(ctx, r.db).Model(&domain.Withdrawal{}).
 		Where("id = ? AND tenant_id = ? AND status = ?", id, tenantID, domain.WithdrawalStatusRequested).
