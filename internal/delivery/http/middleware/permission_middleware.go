@@ -11,8 +11,14 @@ import (
 )
 
 // PermissionBillingRead is the identity permission that lets a tenant member read the
-// tenant's transactions. Identity seeds it for the Creator role only.
+// tenant's transactions, wallet balance, and ledger mutations. Identity seeds it
+// for the Creator role only.
 const PermissionBillingRead = "billing:read"
+
+// PermissionBillingWithdraw is the identity permission that lets a tenant member
+// manage the tenant's payout bank accounts (KEL-142). Identity seeds it for the
+// Creator role only.
+const PermissionBillingWithdraw = "billing:withdraw"
 
 // RequirePermission guards tenant-only reads: parent credentials cannot be used even
 // when they carry a tenant claim, and cannot reach identity or the handler.

@@ -22,19 +22,45 @@ type WalletLockingRepository interface {
 type LedgerEntryRepository interface {
 	Create(ctx context.Context, entry *domain.LedgerEntry) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.LedgerEntry, error)
+	// ListByWallet returns one wallet's entries newest first; page starts at 1.
+	ListByWallet(ctx context.Context, walletID uuid.UUID, page, pageSize int) ([]domain.LedgerEntry, int64, error)
+	// SumByWallet totals one wallet's entries; it is the ledger side of the
+	// balance invariant the paid callback maintains.
+	SumByWallet(ctx context.Context, walletID uuid.UUID) (int64, error)
 }
 
 type BankAccountRepository interface {
 	Create(ctx context.Context, account *domain.BankAccount) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.BankAccount, error)
+	// GetByIDScoped reads one account inside its tenant; anything else is
+	// gorm.ErrRecordNotFound so callers cannot distinguish missing, deleted,
+	// or foreign rows.
+	GetByIDScoped(ctx context.Context, tenantID, id uuid.UUID) (*domain.BankAccount, error)
+	// GetByIDScopedForUpdate is the locked variant for write transactions.
+	GetByIDScopedForUpdate(ctx context.Context, tenantID, id uuid.UUID) (*domain.BankAccount, error)
+	// ListByTenant returns the tenant's live accounts, primary first.
+	ListByTenant(ctx context.Context, tenantID uuid.UUID) ([]domain.BankAccount, error)
+	// HasPrimary reports whether the tenant already has a live primary account.
+	HasPrimary(ctx context.Context, tenantID uuid.UUID) (bool, error)
+	// ClearPrimary demotes every live primary of the tenant. It is one
+	// statement, so it never leaves a half-moved slot behind.
+	ClearPrimary(ctx context.Context, tenantID uuid.UUID) error
+	// SetPrimary makes id the tenant's only primary: it clears the slot first
+	// and then promotes the target, so a crash between the two cannot strand
+	// two primaries. Run it inside a transaction after locking the target.
+	SetPrimary(ctx context.Context, tenantID, id uuid.UUID) error
 	Update(ctx context.Context, account *domain.BankAccount) error
-	Delete(ctx context.Context, id uuid.UUID) error
+	// SoftDelete marks the row deleted; history rows are never removed.
+	SoftDelete(ctx context.Context, tenantID, id uuid.UUID) (bool, error)
 }
 
 type WithdrawalRepository interface {
 	Create(ctx context.Context, withdrawal *domain.Withdrawal) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Withdrawal, error)
 	Update(ctx context.Context, withdrawal *domain.Withdrawal) error
+	// CountActiveByBankAccount counts withdrawals in the given statuses that
+	// still reference the account; a non-zero count blocks deleting it.
+	CountActiveByBankAccount(ctx context.Context, accountID uuid.UUID, statuses []string) (int64, error)
 }
 
 type VoucherRepository interface {
