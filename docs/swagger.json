@@ -795,6 +795,347 @@
                 }
             }
         },
+        "/api/v1/billing/withdrawals": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Tenant members with billing:withdraw only; parents are forbidden. Withdrawals are listed newest first with masked destination account numbers.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Billing"
+                ],
+                "summary": "List tenant payout withdrawal requests",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page number, starting at 1",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Entries per page, at most 100",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.WithdrawalListResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Tenant members with billing:withdraw only; parents are forbidden. Moves the amount from the available balance to the held balance in one transaction and freezes the payout destination at request time. A retry carrying the same idempotency key returns the stored request without moving balance twice. Only one open request per tenant.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Billing"
+                ],
+                "summary": "Request a tenant payout withdrawal",
+                "parameters": [
+                    {
+                        "description": "Withdrawal details",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.RequestWithdrawalRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.WithdrawalResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/billing/withdrawals/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Tenant members with billing:withdraw only; parents are forbidden. The destination is the snapshot frozen at request time, with the account number masked.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Billing"
+                ],
+                "summary": "Get one tenant payout withdrawal request",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Withdrawal UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.WithdrawalResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Tenant members with billing:withdraw only; parents are forbidden. Only a request still in `requested` can be cancelled; the held amount returns to the available balance with a reversal ledger entry. Of concurrent cancellers exactly one wins.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Billing"
+                ],
+                "summary": "Cancel a tenant payout withdrawal request",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Withdrawal UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.WithdrawalResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/internal/billing/reconciliations": {
             "get": {
                 "description": "Internal service-to-service endpoint for operators. Returns the durable reconciliation jobs of enrollment activation and seat release so a permanently failed job can be found without a provider callback. Without `status` every row is returned.",
@@ -1395,6 +1736,25 @@
                 }
             }
         },
+        "github_com_kelolakelas_kelolakelas-billing-service_internal_domain.RequestWithdrawalRequest": {
+            "type": "object",
+            "required": [
+                "amount",
+                "idempotency_key"
+            ],
+            "properties": {
+                "amount": {
+                    "type": "integer"
+                },
+                "bank_account_id": {
+                    "type": "string"
+                },
+                "idempotency_key": {
+                    "type": "string",
+                    "maxLength": 255
+                }
+            }
+        },
         "github_com_kelolakelas_kelolakelas-billing-service_internal_domain.SalesSummary": {
             "type": "object",
             "properties": {
@@ -1598,6 +1958,72 @@
                 },
                 "pending_balance": {
                     "type": "integer"
+                }
+            }
+        },
+        "github_com_kelolakelas_kelolakelas-billing-service_internal_domain.WithdrawalListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.WithdrawalResponse"
+                    }
+                },
+                "pagination": {
+                    "type": "object",
+                    "properties": {
+                        "page": {
+                            "type": "integer"
+                        },
+                        "page_size": {
+                            "type": "integer"
+                        },
+                        "total_items": {
+                            "type": "integer"
+                        },
+                        "total_pages": {
+                            "type": "integer"
+                        }
+                    }
+                }
+            }
+        },
+        "github_com_kelolakelas_kelolakelas-billing-service_internal_domain.WithdrawalResponse": {
+            "type": "object",
+            "properties": {
+                "account_name": {
+                    "type": "string"
+                },
+                "account_number": {
+                    "type": "string"
+                },
+                "admin_fee": {
+                    "type": "integer"
+                },
+                "amount": {
+                    "type": "integer"
+                },
+                "bank_code": {
+                    "type": "string"
+                },
+                "cancelled_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "net_amount": {
+                    "type": "integer"
+                },
+                "processed_at": {
+                    "type": "string"
+                },
+                "requested_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
                 }
             }
         }

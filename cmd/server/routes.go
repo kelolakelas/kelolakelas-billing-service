@@ -26,6 +26,10 @@ type routeHandlers struct {
 	updateBankAccount      gin.HandlerFunc
 	deleteBankAccount      gin.HandlerFunc
 	setPrimaryBankAccount  gin.HandlerFunc
+	requestWithdrawal      gin.HandlerFunc
+	cancelWithdrawal       gin.HandlerFunc
+	getWithdrawal          gin.HandlerFunc
+	listWithdrawals        gin.HandlerFunc
 }
 
 // registerRoutes mounts the public, protected, and internal billing routes.
@@ -33,7 +37,8 @@ type routeHandlers struct {
 // The browser-facing reads are subject to the `billing:read` permission check
 // (KEL-57, ADR 0024), and the wallet and ledger reads (KEL-142) are tenant-only
 // like the sales summary: parents are refused before identity or the handler
-// run. Payout-account writes (KEL-142) need `billing:withdraw`. The Duitku
+// run. Payout-account writes (KEL-142) and withdrawal requests and cancels
+// (KEL-143) need `billing:withdraw`. The Duitku
 // webhook keeps its HMAC check, and the internal routes keep the static
 // internal credential; neither is a tenant-member call, so neither asks
 // identity anything.
@@ -55,6 +60,10 @@ func registerRoutes(r gin.IRouter, h routeHandlers, jwtSecret, internalCredentia
 	protected.PATCH("/bank-accounts/:id", billingWithdraw, h.updateBankAccount)
 	protected.DELETE("/bank-accounts/:id", billingWithdraw, h.deleteBankAccount)
 	protected.POST("/bank-accounts/:id/set-primary", billingWithdraw, h.setPrimaryBankAccount)
+	protected.POST("/withdrawals", billingWithdraw, h.requestWithdrawal)
+	protected.GET("/withdrawals", billingWithdraw, h.listWithdrawals)
+	protected.GET("/withdrawals/:id", billingWithdraw, h.getWithdrawal)
+	protected.DELETE("/withdrawals/:id", billingWithdraw, h.cancelWithdrawal)
 
 	internal := r.Group("/internal/billing")
 	internal.Use(middleware.InternalServiceAuth(internalCredential))

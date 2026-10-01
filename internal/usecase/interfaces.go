@@ -33,7 +33,16 @@ type TransactionUsecase interface {
 }
 
 type WithdrawalUsecase interface {
-	RequestWithdrawal(ctx context.Context, tenantID uuid.UUID, bankAccountID uuid.UUID, amount int64) (*domain.Withdrawal, error)
+	// RequestWithdrawal moves amount from available to held balance in one
+	// transaction and returns the stored request with its frozen destination.
+	RequestWithdrawal(ctx context.Context, tenantID uuid.UUID, input domain.RequestWithdrawalInput) (*domain.WithdrawalResponse, error)
+	// CancelWithdrawal releases one `requested` withdrawal back to the
+	// available balance with a reversal ledger entry.
+	CancelWithdrawal(ctx context.Context, tenantID, id uuid.UUID) (*domain.WithdrawalResponse, error)
+	// GetWithdrawal returns one tenant withdrawal with its frozen destination.
+	GetWithdrawal(ctx context.Context, tenantID, id uuid.UUID) (*domain.WithdrawalResponse, error)
+	// ListWithdrawals returns the tenant's withdrawal history newest first.
+	ListWithdrawals(ctx context.Context, tenantID uuid.UUID, query domain.WithdrawalQuery) (*domain.WithdrawalListResponse, error)
 }
 
 // BankAccountUsecase manages one tenant's payout accounts (KEL-142). Every

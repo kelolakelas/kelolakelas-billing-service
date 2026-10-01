@@ -94,6 +94,7 @@ func main() {
 	reconciliationHandler := handler.NewReconciliationHandler(reconciliationAdmin)
 	walletHandler := handler.NewWalletHandler(usecase.NewWalletUsecase(walletRepo, ledgerRepo))
 	bankAccountHandler := handler.NewBankAccountHandler(usecase.NewBankAccountUsecase(bankAccountRepo, withdrawalRepo, txManager))
+	withdrawalHandler := handler.NewWithdrawalHandler(usecase.NewWithdrawalUsecase(walletRepo, ledgerRepo, bankAccountRepo, withdrawalRepo, txManager, cfg.WithdrawalMinimumAmount))
 
 	// Initialize Router
 	r := gin.New()
@@ -136,6 +137,10 @@ func main() {
 		updateBankAccount:      bankAccountHandler.UpdateBankAccount,
 		deleteBankAccount:      bankAccountHandler.DeleteBankAccount,
 		setPrimaryBankAccount:  bankAccountHandler.SetPrimaryBankAccount,
+		requestWithdrawal:      withdrawalHandler.RequestWithdrawal,
+		cancelWithdrawal:       withdrawalHandler.CancelWithdrawal,
+		getWithdrawal:          withdrawalHandler.GetWithdrawal,
+		listWithdrawals:        withdrawalHandler.ListWithdrawals,
 	}, cfg.JWTSecret, cfg.InternalServiceCredential, permissionClient)
 
 	server := newHTTPServer(cfg, r)

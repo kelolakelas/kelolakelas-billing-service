@@ -63,6 +63,10 @@ type Config struct {
 	ServerReadTimeout       int `mapstructure:"SERVER_READ_TIMEOUT_SECONDS"`
 	ServerWriteTimeout      int `mapstructure:"SERVER_WRITE_TIMEOUT_SECONDS"`
 	ServerIdleTimeout       int `mapstructure:"SERVER_IDLE_TIMEOUT_SECONDS"`
+	// WithdrawalMinimumAmount is the smallest tenant withdrawal request
+	// accepted, in the smallest currency unit (KEL-143). A non-positive value
+	// falls back to the default, so dust requests stay out.
+	WithdrawalMinimumAmount int64 `mapstructure:"WITHDRAWAL_MINIMUM_AMOUNT"`
 }
 
 // DefaultIdentityPermissionTimeoutMs is used when IDENTITY_PERMISSION_TIMEOUT_MS is
@@ -88,6 +92,10 @@ const (
 	DefaultServerIdleTimeout = 120
 )
 
+// DefaultWithdrawalMinimumAmount is the smallest tenant withdrawal request
+// accepted when WITHDRAWAL_MINIMUM_AMOUNT is unset or non-positive (KEL-143).
+const DefaultWithdrawalMinimumAmount = int64(50000)
+
 // maxDurationSeconds is the largest number of seconds a time.Duration can hold.
 const maxDurationSeconds = int(int64(1<<63-1) / int64(time.Second))
 
@@ -111,6 +119,7 @@ func LoadConfig() (Config, error) {
 		"DUITKU_CALLBACK_URL", "DUITKU_RETURN_URL", "ACADEMIC_SERVICE_URL", "INTERNAL_SERVICE_CREDENTIAL", "JWT_SECRET",
 		"SUBSCRIPTION_WORKER_ENABLED", "SUBSCRIPTION_WORKER_INTERVAL_MINUTES", "SUBSCRIPTION_PAYMENT_REMINDER_INTERVAL_DAYS", "SUBSCRIPTION_PAYMENT_EXPIRY_PERIOD_DAYS", "PAYMENT_RECONCILIATION_WORKER_ENABLED", "PAYMENT_RECONCILIATION_WORKER_INTERVAL_MINUTES", "PAYMENT_RECONCILIATION_MAX_ATTEMPTS", "TRANSACTION_EXPIRY_WORKER_ENABLED", "TRANSACTION_EXPIRY_WORKER_INTERVAL_MINUTES", "TRANSACTION_CLAIM_TIMEOUT_MINUTES", "RESEND_API_KEY", "RESEND_FROM_EMAIL", "IDENTITY_GRPC_HOST", "IDENTITY_PERMISSION_TIMEOUT_MS",
 		"SERVER_READ_HEADER_TIMEOUT_SECONDS", "SERVER_READ_TIMEOUT_SECONDS", "SERVER_WRITE_TIMEOUT_SECONDS", "SERVER_IDLE_TIMEOUT_SECONDS",
+		"WITHDRAWAL_MINIMUM_AMOUNT",
 	} {
 		if err := viper.BindEnv(key); err != nil {
 			return Config{}, err
@@ -178,6 +187,11 @@ func LoadConfig() (Config, error) {
 	}
 	if config.TransactionClaimTimeoutMinutes == 0 {
 		config.TransactionClaimTimeoutMinutes = domain.DefaultTransactionClaimTimeoutMinutes
+	}
+	// A non-positive value falls back to the default, like the provider and
+	// server timeouts; there is always a floor (KEL-143).
+	if config.WithdrawalMinimumAmount <= 0 {
+		config.WithdrawalMinimumAmount = DefaultWithdrawalMinimumAmount
 	}
 	if config.DuitkuAPIBaseURL == "" {
 		config.DuitkuAPIBaseURL = "https://sandbox.duitku.com/webapi/api/merchant"
