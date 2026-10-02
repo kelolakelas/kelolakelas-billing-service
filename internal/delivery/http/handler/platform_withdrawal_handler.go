@@ -21,13 +21,14 @@ func NewPlatformWithdrawalHandler(decisions usecase.PlatformWithdrawalUsecase) *
 }
 
 // ListRequested godoc
-// @Summary List pending manual withdrawals, oldest first
-// @Description Active platform admins only; returns the frozen full payout destination.
+// @Summary List pending withdrawals or decision history
+// @Description Active platform admins only; default returns the oldest pending withdrawals. status=decided returns paid and rejected decisions newest first. Returns the frozen full payout destination.
 // @Tags Billing
 // @Produce json
 // @Security BearerAuth
 // @Param page query int false "Page number"
 // @Param page_size query int false "Page size, maximum 100"
+// @Param status query string false "Set to decided for paid/rejected history; omit for requested queue" Enums(decided)
 // @Success 200 {object} domain.HTTPResponse{data=domain.PlatformWithdrawalListResponse}
 // @Failure 400 {object} domain.ErrorResponse
 // @Failure 401 {object} domain.ErrorResponse
@@ -47,7 +48,18 @@ func (h *PlatformWithdrawalHandler) ListRequested(c *gin.Context) {
 			*target = n
 		}
 	}
-	result, err := h.decisions.ListRequested(c.Request.Context(), q)
+	status := c.Query("status")
+	if status != "" && status != "decided" || len(c.Request.URL.Query()["status"]) > 0 && status == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Invalid status", "data": nil})
+		return
+	}
+	var result *domain.PlatformWithdrawalListResponse
+	var err error
+	if status == "decided" {
+		result, err = h.decisions.ListDecided(c.Request.Context(), q)
+	} else {
+		result, err = h.decisions.ListRequested(c.Request.Context(), q)
+	}
 	if err != nil {
 		mapWithdrawalError(c, err, "platform withdrawal list failed")
 		return

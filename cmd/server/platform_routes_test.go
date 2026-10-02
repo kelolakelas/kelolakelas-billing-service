@@ -32,6 +32,7 @@ func TestPlatformWithdrawalRoutesFailClosed(t *testing.T) {
 	tenant := signToken(t, middleware.Claims{UserID: uuid.NewString(), TenantID: uuid.NewString()})
 	paths := []struct{ method, path, hit string }{
 		{http.MethodGet, "/api/v1/platform/withdrawals", "platform-withdrawal-list"},
+		{http.MethodGet, "/api/v1/platform/withdrawals?status=decided", "platform-withdrawal-list"},
 		{http.MethodPost, "/api/v1/platform/withdrawals/" + uuid.NewString() + "/paid", "platform-withdrawal-paid"},
 		{http.MethodPost, "/api/v1/platform/withdrawals/" + uuid.NewString() + "/reject", "platform-withdrawal-reject"},
 	}

@@ -1692,7 +1692,9 @@ paths:
       - Billing
   /api/v1/platform/withdrawals:
     get:
-      description: Active platform admins only; returns the frozen full payout destination.
+      description: Active platform admins only; default returns the oldest pending
+        withdrawals. status=decided returns paid and rejected decisions newest first.
+        Returns the frozen full payout destination.
       parameters:
       - description: Page number
         in: query
@@ -1702,6 +1704,13 @@ paths:
         in: query
         name: page_size
         type: integer
+      - description: Set to decided for paid/rejected history; omit for requested
+          queue
+        enum:
+        - decided
+        in: query
+        name: status
+        type: string
       produces:
       - application/json
       responses:
@@ -1736,7 +1745,7 @@ paths:
             $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
       security:
       - BearerAuth: []
-      summary: List pending manual withdrawals, oldest first
+      summary: List pending withdrawals or decision history
       tags:
       - Billing
   /api/v1/platform/withdrawals/{id}/paid:
