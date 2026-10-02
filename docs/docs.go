@@ -1667,14 +1667,14 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Active platform admins only; returns the frozen full payout destination.",
+                "description": "Active platform admins only; default returns the oldest pending withdrawals. status=decided returns paid and rejected decisions newest first. Returns the frozen full payout destination.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "Billing"
                 ],
-                "summary": "List pending manual withdrawals, oldest first",
+                "summary": "List pending withdrawals or decision history",
                 "parameters": [
                     {
                         "type": "integer",
@@ -1686,6 +1686,15 @@ const docTemplate = `{
                         "type": "integer",
                         "description": "Page size, maximum 100",
                         "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "decided"
+                        ],
+                        "type": "string",
+                        "description": "Set to decided for paid/rejected history; omit for requested queue",
+                        "name": "status",
                         "in": "query"
                     }
                 ],

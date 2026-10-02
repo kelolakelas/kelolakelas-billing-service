@@ -114,6 +114,20 @@ func (r *withdrawalRepository) ListRequested(ctx context.Context, page, pageSize
 	return rows, total, err
 }
 
+// ListDecided includes only manual terminal decisions, newest first. The UUID
+// tie-break keeps offset pagination deterministic when timestamps are equal.
+func (r *withdrawalRepository) ListDecided(ctx context.Context, page, pageSize int) ([]domain.Withdrawal, int64, error) {
+	statuses := []string{domain.WithdrawalStatusPaid, domain.WithdrawalStatusRejected}
+	db := GetDB(ctx, r.db).Model(&domain.Withdrawal{}).Where("status IN ?", statuses)
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var rows []domain.Withdrawal
+	err := db.Order("decided_at DESC").Order("id DESC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&rows).Error
+	return rows, total, err
+}
+
 func (r *withdrawalRepository) ClaimDecision(ctx context.Context, id, adminID uuid.UUID, decision, detail string, now time.Time) (bool, error) {
 	updates := map[string]interface{}{"status": decision, "decided_by": adminID, "decided_at": now, "processed_at": now}
 	if decision == domain.WithdrawalStatusPaid {

@@ -18,6 +18,7 @@ import (
 
 type PlatformWithdrawalUsecase interface {
 	ListRequested(context.Context, domain.WithdrawalQuery) (*domain.PlatformWithdrawalListResponse, error)
+	ListDecided(context.Context, domain.WithdrawalQuery) (*domain.PlatformWithdrawalListResponse, error)
 	Decide(context.Context, uuid.UUID, uuid.UUID, string, string) (*domain.PlatformWithdrawalResponse, error)
 }
 
@@ -33,20 +34,42 @@ func NewPlatformWithdrawalUsecase(w repository.PlatformWithdrawalRepository, wal
 }
 
 func (u *platformWithdrawalUsecase) ListRequested(ctx context.Context, query domain.WithdrawalQuery) (*domain.PlatformWithdrawalListResponse, error) {
-	if query.Page < 1 || query.PageSize < 1 || query.PageSize > 100 {
-		return nil, domain.ErrWithdrawalInvalid
+	if err := validatePlatformWithdrawalQuery(query); err != nil {
+		return nil, err
 	}
 	rows, total, err := u.withdrawals.ListRequested(ctx, query.Page, query.PageSize)
 	if err != nil {
 		return nil, err
 	}
+	return platformWithdrawalList(rows, total, query), nil
+}
+
+func (u *platformWithdrawalUsecase) ListDecided(ctx context.Context, query domain.WithdrawalQuery) (*domain.PlatformWithdrawalListResponse, error) {
+	if err := validatePlatformWithdrawalQuery(query); err != nil {
+		return nil, err
+	}
+	rows, total, err := u.withdrawals.ListDecided(ctx, query.Page, query.PageSize)
+	if err != nil {
+		return nil, err
+	}
+	return platformWithdrawalList(rows, total, query), nil
+}
+
+func validatePlatformWithdrawalQuery(query domain.WithdrawalQuery) error {
+	if query.Page < 1 || query.PageSize < 1 || query.PageSize > 100 {
+		return domain.ErrWithdrawalInvalid
+	}
+	return nil
+}
+
+func platformWithdrawalList(rows []domain.Withdrawal, total int64, query domain.WithdrawalQuery) *domain.PlatformWithdrawalListResponse {
 	result := &domain.PlatformWithdrawalListResponse{Items: make([]domain.PlatformWithdrawalResponse, 0, len(rows))}
 	for i := range rows {
 		result.Items = append(result.Items, *domain.ToPlatformWithdrawalResponse(&rows[i]))
 	}
 	result.Pagination.Page, result.Pagination.PageSize, result.Pagination.TotalItems = query.Page, query.PageSize, total
 	result.Pagination.TotalPages = int(math.Ceil(float64(total) / float64(query.PageSize)))
-	return result, nil
+	return result
 }
 
 // Decide serializes on the wallet before claiming the withdrawal, matching the

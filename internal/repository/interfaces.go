@@ -86,6 +86,7 @@ type WithdrawalRepository interface {
 // and tenant-scoped repository contracts unchanged.
 type PlatformWithdrawalRepository interface {
 	ListRequested(ctx context.Context, page, pageSize int) ([]domain.Withdrawal, int64, error)
+	ListDecided(ctx context.Context, page, pageSize int) ([]domain.Withdrawal, int64, error)
 	ClaimDecision(ctx context.Context, id, adminID uuid.UUID, status, detail string, now time.Time) (bool, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Withdrawal, error)
 }
