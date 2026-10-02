@@ -79,8 +79,8 @@ func main() {
 	defer feePolicyClient.Close()
 	emailClient := email.NewResendClient(cfg.ResendAPIKey, cfg.ResendFromEmail, time.Duration(cfg.ResendHTTPTimeoutSeconds)*time.Second)
 	txUsecase := usecase.WithPlatformFeePolicy(usecase.NewTransactionUsecaseWithReconciliation(txRepo, walletRepo, ledgerRepo, subscriptionRepo, duitkuClient, academicClient, cfg, txManager, reconciliationRepo, emailClient), feePolicyClient)
-	worker := usecase.NewSubscriptionWorker(subscriptionRepo, txRepo, duitkuClient, email.NewResendClient(cfg.ResendAPIKey, cfg.ResendFromEmail, time.Duration(cfg.ResendHTTPTimeoutSeconds)*time.Second), cfg).WithPlatformFeePolicy(feePolicyClient)
-	reconciliationWorker := usecase.NewPaymentReconciliationWorker(reconciliationRepo, academicClient, cfg)
+	worker := usecase.NewSubscriptionWorker(subscriptionRepo, txRepo, duitkuClient, email.NewResendClient(cfg.ResendAPIKey, cfg.ResendFromEmail, time.Duration(cfg.ResendHTTPTimeoutSeconds)*time.Second), cfg).WithPlatformFeePolicy(feePolicyClient).WithLifecycle(subscriptionRepo.(repository.SubscriptionLifecycleRepository))
+	reconciliationWorker := usecase.NewPaymentReconciliationWorker(reconciliationRepo, academicClient, cfg).WithLifecycle(subscriptionRepo.(repository.SubscriptionLifecycleRepository))
 	// The expiry worker only needs the expiry capability; when the repository does
 	// not provide it the worker stays idle instead of failing startup.
 	expiryRepo, expiryRepoOK := txRepo.(repository.TransactionExpiryRepository)
@@ -88,7 +88,7 @@ func main() {
 		slog.Warn("transaction repository does not support expiry; unpaid transactions will not be expired automatically")
 	}
 	expiryWorker := usecase.NewTransactionExpiryWorker(expiryRepo, cfg)
-	reconciliationAdmin := usecase.NewReconciliationAdminUsecase(reconciliationRepo)
+	reconciliationAdmin := usecase.WithLifecycleAdmin(usecase.NewReconciliationAdminUsecase(reconciliationRepo), subscriptionRepo.(repository.SubscriptionLifecycleRepository))
 
 	// Initialize Handlers
 	txHandler := handler.NewTransactionHandler(txUsecase, duitkuClient)
@@ -139,6 +139,7 @@ func main() {
 		generateInternal:       txHandler.GenerateInternalSubscriptionPayment,
 		cancelInternal:         txHandler.CancelInternalEnrollmentPayment,
 		listReconciliations:    reconciliationHandler.ListReconciliations,
+		listLifecycle:          reconciliationHandler.ListSubscriptionLifecycle,
 		requeueReconciliations: reconciliationHandler.RequeueTerminalFailedReconciliations,
 		walletBalance:          walletHandler.GetBalance,
 		listLedger:             walletHandler.ListLedger,

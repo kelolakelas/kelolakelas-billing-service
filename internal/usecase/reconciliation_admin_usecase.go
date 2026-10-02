@@ -20,11 +20,28 @@ const reconciliationRequeueBatchSize = 200
 type ReconciliationAdminUsecase interface {
 	ListReconciliations(ctx context.Context, status string) (*domain.ReconciliationListResponse, error)
 	RequeueTerminalFailedReconciliations(ctx context.Context) (*domain.ReconciliationRequeueResponse, error)
+	ListSubscriptionLifecycle(ctx context.Context, status string) ([]repository.SubscriptionLifecycle, error)
 }
 
 type reconciliationAdminUsecase struct {
 	reconciliations repository.PaymentReconciliationRepository
+	lifecycle       repository.SubscriptionLifecycleRepository
 	clock           Clock
+}
+
+func WithLifecycleAdmin(u ReconciliationAdminUsecase, lifecycle repository.SubscriptionLifecycleRepository) ReconciliationAdminUsecase {
+	u.(*reconciliationAdminUsecase).lifecycle = lifecycle
+	return u
+}
+
+func (u *reconciliationAdminUsecase) ListSubscriptionLifecycle(ctx context.Context, status string) ([]repository.SubscriptionLifecycle, error) {
+	if status != "" && !domain.IsReconciliationStatusValue(status) {
+		return nil, domain.ErrInvalidReconciliationStatus
+	}
+	if u.lifecycle == nil {
+		return nil, domain.ErrReconciliationUnavailable
+	}
+	return u.lifecycle.ListLifecycle(ctx, status, 200)
 }
 
 func NewReconciliationAdminUsecase(reconciliations repository.PaymentReconciliationRepository, clock ...Clock) ReconciliationAdminUsecase {

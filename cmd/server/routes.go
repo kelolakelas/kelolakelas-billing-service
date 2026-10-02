@@ -19,6 +19,7 @@ type routeHandlers struct {
 	generateInternal       gin.HandlerFunc
 	cancelInternal         gin.HandlerFunc
 	listReconciliations    gin.HandlerFunc
+	listLifecycle          gin.HandlerFunc
 	requeueReconciliations gin.HandlerFunc
 	walletBalance          gin.HandlerFunc
 	listLedger             gin.HandlerFunc
@@ -100,5 +101,6 @@ func registerRoutes(r gin.IRouter, h routeHandlers, jwtSecret, internalCredentia
 	// Operator-facing recovery path for durable enrollments; there is no platform admin
 	// persona, so it stays behind the internal credential instead of the browser.
 	internal.GET("/reconciliations", h.listReconciliations)
+	internal.GET("/subscription-lifecycle", h.listLifecycle)
 	internal.POST("/reconciliations/requeue", h.requeueReconciliations)
 }

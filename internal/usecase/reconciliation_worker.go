@@ -21,9 +21,15 @@ const reconciliationLease = 5 * time.Minute
 
 type PaymentReconciliationWorker struct {
 	reconciliations repository.PaymentReconciliationRepository
+	lifecycle       repository.SubscriptionLifecycleRepository
 	academic        academic.Client
 	cfg             config.Config
 	clock           Clock
+}
+
+func (w *PaymentReconciliationWorker) WithLifecycle(repo repository.SubscriptionLifecycleRepository) *PaymentReconciliationWorker {
+	w.lifecycle = repo
+	return w
 }
 
 func NewPaymentReconciliationWorker(reconciliations repository.PaymentReconciliationRepository, academicClient academic.Client, cfg config.Config, clock ...Clock) *PaymentReconciliationWorker {
@@ -56,6 +62,34 @@ func (w *PaymentReconciliationWorker) Run(ctx context.Context) {
 }
 
 func (w *PaymentReconciliationWorker) RunOnce(ctx context.Context) {
+	if w.lifecycle != nil {
+		for ctx.Err() == nil {
+			job, err := w.lifecycle.ClaimLifecycle(ctx, w.clock.Now())
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				break
+			}
+			if err != nil {
+				slog.WarnContext(ctx, "subscription lifecycle claim failed", "error", err)
+				break
+			}
+			var callErr error
+			client, ok := w.academic.(academic.LifecycleClient)
+			if !ok {
+				callErr = errors.New("academic lifecycle client is unavailable")
+			} else if job.DesiredAction == "suspend" {
+				callErr = client.SuspendEnrollment(ctx, job.EnrollmentID)
+			} else {
+				callErr = client.ResumeEnrollment(ctx, job.EnrollmentID)
+			}
+			failure := ""
+			if callErr != nil {
+				failure = callErr.Error()
+			}
+			if err := w.lifecycle.FinishLifecycle(ctx, job, w.clock.Now(), failure, w.cfg.PaymentReconciliationMaxAttempts); err != nil {
+				slog.WarnContext(ctx, "subscription lifecycle persistence failed", "error", err)
+			}
+		}
+	}
 	for ctx.Err() == nil {
 		reconciliation, err := w.reconciliations.ClaimDue(ctx, uuid.Nil, w.clock.Now(), reconciliationLease)
 		if errors.Is(err, gorm.ErrRecordNotFound) {

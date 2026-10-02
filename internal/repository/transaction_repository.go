@@ -294,8 +294,11 @@ func (r *transactionRepository) ClaimReinvoice(ctx context.Context, id uuid.UUID
 // concurrent replicas claim disjoint rows, and the outer WHERE re-checks the
 // status so an invoice paid in the meantime is never expired.
 // ExpireDue marks due unpaid transactions as expired and enqueues their durable
-// Academic seat release in one statement, so there is no window in which a seat is
-// locked without a retry job recording why. The release job is inserted with
+// Academic seat release in one statement for initial payments. Renewal invoices
+// are excluded from release: an expired renewal remains payable on a confirmed
+// late callback, while the subscription grace worker owns suspension independently.
+// Releasing a renewal's seat would permanently drop the enrollment instead of
+// allowing the idempotent suspend/resume lifecycle. The release job is inserted with
 // ON CONFLICT DO NOTHING against the unique transaction_id: a transaction whose
 // activation is still owed keeps that job, and a transaction that already activated
 // keeps its accepted activation. The statement returns one row per expired
@@ -323,12 +326,12 @@ func (r *transactionRepository) ExpireDue(ctx context.Context, now time.Time, li
 			SET status = ?, expired_at = ?, updated_at = ?
 			FROM due
 			WHERE t.id = due.id AND t.status = ?
-			RETURNING t.id, t.enrollment_id
+			RETURNING t.id, t.enrollment_id, t.subscription_id
 		), released AS (
 			INSERT INTO payment_reconciliations (id, transaction_id, enrollment_id, kind, status, attempt_count, next_attempt_at, created_at, updated_at)
 			SELECT gen_random_uuid(), id, enrollment_id, ?, ?, 0, ?, ?, ?
 			FROM expired
-			WHERE enrollment_id <> ?
+			WHERE enrollment_id <> ? AND subscription_id IS NULL
 			ON CONFLICT (transaction_id) DO NOTHING
 			RETURNING transaction_id
 		)
