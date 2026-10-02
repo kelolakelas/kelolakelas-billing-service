@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/domain"
+	"github.com/kelolakelas/kelolakelas-billing-service/internal/repository"
 )
 
 // reconciliationUsecaseStub returns a canned outcome so the tests can prove the handler
@@ -25,6 +26,10 @@ type reconciliationUsecaseStub struct {
 	listCalls      int
 	requeueCalls   int
 	lastStatusSeen string
+}
+
+func (s *reconciliationUsecaseStub) ListSubscriptionLifecycle(context.Context, string) ([]repository.SubscriptionLifecycle, error) {
+	return nil, nil
 }
 
 func (s *reconciliationUsecaseStub) ListReconciliations(_ context.Context, status string) (*domain.ReconciliationListResponse, error) {

@@ -77,6 +77,28 @@ func TestLoadConfig(t *testing.T) {
 	}
 }
 
+func TestSubscriptionGracePeriodConfig(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  int
+	}{{"", 7}, {"0", 7}, {"-2", 7}, {"12", 12}} {
+		t.Run(tc.value, func(t *testing.T) {
+			viper.Reset()
+			t.Chdir(t.TempDir())
+			t.Setenv("JWT_SECRET", "test-secret")
+			t.Setenv("INTERNAL_SERVICE_CREDENTIAL", "test-internal-credential")
+			t.Setenv("SUBSCRIPTION_GRACE_PERIOD_DAYS", tc.value)
+			cfg, err := LoadConfig()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.SubscriptionGracePeriodDays != tc.want {
+				t.Fatalf("grace days=%d, want %d", cfg.SubscriptionGracePeriodDays, tc.want)
+			}
+		})
+	}
+}
+
 func TestChannelBindingEnvironmentOverridesDatabaseURL(t *testing.T) {
 	viper.Reset()
 	t.Chdir(t.TempDir())

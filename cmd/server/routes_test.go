@@ -87,6 +87,7 @@ func newPlatformTestRouterWithPermissions(admin *platformStub, stub *identityStu
 		generateInternal:       rec.handler("internal-generate"),
 		cancelInternal:         rec.handler("internal-cancel"),
 		listReconciliations:    rec.handler("internal-reconciliations"),
+		listLifecycle:          rec.handler("internal-lifecycle"),
 		requeueReconciliations: rec.handler("internal-requeue"),
 		walletBalance:          rec.handler("wallet"),
 		listLedger:             rec.handler("ledger"),
@@ -387,6 +388,7 @@ func TestWebhookAndInternalRoutesDoNotAskIdentity(t *testing.T) {
 		{http.MethodPost, "/internal/billing/transactions", "internal-generate", internal},
 		{http.MethodPost, "/internal/billing/transactions/cancel", "internal-cancel", internal},
 		{http.MethodGet, "/internal/billing/reconciliations", "internal-reconciliations", internal},
+		{http.MethodGet, "/internal/billing/subscription-lifecycle", "internal-lifecycle", internal},
 		{http.MethodPost, "/internal/billing/reconciliations/requeue", "internal-requeue", internal},
 	} {
 		if got := serve(router, route.method, route.target, "", route.headers); got.Code != http.StatusOK {
@@ -399,7 +401,9 @@ func TestWebhookAndInternalRoutesDoNotAskIdentity(t *testing.T) {
 	if len(stub.calls) != 0 {
 		t.Fatalf("identity was consulted for non-member routes: %v", stub.calls)
 	}
-	if got := serve(router, http.MethodGet, "/internal/billing/reconciliations", "", nil); got.Code != http.StatusUnauthorized {
-		t.Fatalf("internal route without credential status=%d, want 401", got.Code)
+	for _, target := range []string{"/internal/billing/reconciliations", "/internal/billing/subscription-lifecycle"} {
+		if got := serve(router, http.MethodGet, target, "", nil); got.Code != http.StatusUnauthorized {
+			t.Fatalf("internal route %s without credential status=%d, want 401", target, got.Code)
+		}
 	}
 }

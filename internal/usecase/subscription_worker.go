@@ -31,6 +31,19 @@ type SubscriptionWorker struct {
 	// feePolicy prices each renewal transaction from the policy applied when the
 	// renewal is created (KEL-99). Without it no renewal transaction is created.
 	feePolicy domain.PlatformFeePolicyReader
+	lifecycle repository.SubscriptionLifecycleRepository
+}
+
+func (w *SubscriptionWorker) WithLifecycle(repo repository.SubscriptionLifecycleRepository) *SubscriptionWorker {
+	w.lifecycle = repo
+	return w
+}
+
+func (w *SubscriptionWorker) graceDays() int {
+	if w.cfg.SubscriptionGracePeriodDays <= 0 {
+		return 7
+	}
+	return w.cfg.SubscriptionGracePeriodDays
 }
 
 // WithPlatformFeePolicy attaches the platform fee policy reader for renewals.
@@ -70,7 +83,7 @@ func (w *SubscriptionWorker) Run(ctx context.Context) {
 
 func (w *SubscriptionWorker) RunOnce(ctx context.Context) {
 	now := w.clock.Now()
-	subscriptions, err := w.subscriptions.ListDueForRenewal(ctx, now.AddDate(0, 0, 7))
+	subscriptions, err := w.subscriptions.ListDueForRenewal(ctx, now.AddDate(0, 0, w.graceDays()))
 	if err != nil {
 		slog.ErrorContext(ctx, "list due subscriptions for renewal failed", "error", err)
 		return
@@ -87,8 +100,12 @@ func (w *SubscriptionWorker) RunOnce(ctx context.Context) {
 
 func (w *SubscriptionWorker) process(ctx context.Context, subscription *domain.Subscription, now time.Time) error {
 	period := dateOnly(subscription.NextBillingDate)
-	if now.After(period.AddDate(0, 0, 7)) {
-		return nil
+	if now.After(period.AddDate(0, 0, w.graceDays())) {
+		if w.lifecycle == nil {
+			return fmt.Errorf("subscription lifecycle repository unavailable")
+		}
+		_, err := w.lifecycle.SuspendOverdue(ctx, subscription.ID, period, now)
+		return err
 	}
 	tx, err := w.transactions.GetBySubscriptionPeriod(ctx, subscription.ID, period)
 	if errors.Is(err, gorm.ErrRecordNotFound) {

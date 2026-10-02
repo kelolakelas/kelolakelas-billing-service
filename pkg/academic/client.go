@@ -23,6 +23,12 @@ type Client interface {
 	ReleaseEnrollment(ctx context.Context, enrollmentID uuid.UUID) error
 }
 
+// LifecycleClient covers recurring subscriptions; both endpoints are idempotent.
+type LifecycleClient interface {
+	SuspendEnrollment(context.Context, uuid.UUID) error
+	ResumeEnrollment(context.Context, uuid.UUID) error
+}
+
 type client struct {
 	baseURL    string
 	credential string
@@ -49,6 +55,12 @@ func NewClient(baseURL, credential string) Client {
 
 func (c *client) ActivateEnrollment(ctx context.Context, enrollmentID uuid.UUID) error {
 	return c.callEnrollment(ctx, enrollmentID, "activate")
+}
+func (c *client) SuspendEnrollment(ctx context.Context, enrollmentID uuid.UUID) error {
+	return c.callEnrollment(ctx, enrollmentID, "suspend")
+}
+func (c *client) ResumeEnrollment(ctx context.Context, enrollmentID uuid.UUID) error {
+	return c.callEnrollment(ctx, enrollmentID, "resume")
 }
 
 // ReleaseEnrollment returns the seat held by an enrollment whose payment failed or

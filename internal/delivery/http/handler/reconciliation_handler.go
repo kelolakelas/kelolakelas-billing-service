@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/domain"
+	"github.com/kelolakelas/kelolakelas-billing-service/internal/repository"
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/usecase"
 )
 
@@ -29,6 +30,27 @@ func NewReconciliationHandler(reconciliationUsecase usecase.ReconciliationAdminU
 // @Failure 500 {object} domain.ErrorResponse
 // @Failure 503 {object} domain.ErrorResponse
 // @Router /internal/billing/reconciliations [get]
+// ListSubscriptionLifecycle exposes the durable suspend/resume job and its conflict
+// detail through the same credential-protected internal reconciliation surface.
+func (h *ReconciliationHandler) ListSubscriptionLifecycle(c *gin.Context) {
+	items, err := h.reconciliationUsecase.ListSubscriptionLifecycle(c.Request.Context(), c.Query("status"))
+	if err != nil {
+		switch {
+		case errors.Is(err, domain.ErrInvalidReconciliationStatus):
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Invalid reconciliation status"})
+		case errors.Is(err, domain.ErrReconciliationUnavailable):
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "error", "message": "Reconciliation store is unavailable"})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "Failed to list subscription lifecycle"})
+		}
+		return
+	}
+	if items == nil {
+		items = []repository.SubscriptionLifecycle{}
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "success", "data": items})
+}
+
 func (h *ReconciliationHandler) ListReconciliations(c *gin.Context) {
 	result, err := h.reconciliationUsecase.ListReconciliations(c.Request.Context(), c.Query("status"))
 	if err != nil {

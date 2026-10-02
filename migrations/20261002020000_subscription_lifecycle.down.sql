@@ -1,0 +1,1 @@
+DROP TABLE IF EXISTS subscription_lifecycle_reconciliations;
