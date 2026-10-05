@@ -42,6 +42,8 @@ func (s *identityStub) CheckPermission(_ context.Context, tenantID, roleID, memb
 		return false, nil
 	}
 	switch permission {
+	case "billing:refund":
+		return s.withdraw[roleID], nil
 	case middleware.PermissionBillingRead:
 		return s.grants[roleID], nil
 	case middleware.PermissionBillingWithdraw:
@@ -84,6 +86,7 @@ func newPlatformTestRouterWithPermissions(admin *platformStub, stub *identityStu
 		salesSummary:           rec.handler("summary"),
 		exportTransactions:     rec.handler("export"),
 		getTransaction:         rec.handler("get"),
+		recordRefund:           rec.handler("refund"),
 		generateInternal:       rec.handler("internal-generate"),
 		cancelInternal:         rec.handler("internal-cancel"),
 		listReconciliations:    rec.handler("internal-reconciliations"),

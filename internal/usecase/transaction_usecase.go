@@ -945,6 +945,12 @@ func (u *transactionUsecase) handleDuitkuWebhookLocal(ctx context.Context, paylo
 		return fmt.Errorf("failed to fetch transaction: %w", err)
 	}
 
+	// A refunded payment is final: provider callback replay must not credit the
+	// wallet again or recreate activation/subscription work.
+	if tx.Status == domain.TransactionStatusRefunded {
+		return nil
+	}
+
 	// A paid transaction still needs activation reconciliation on callback replay.
 	if tx.Status == "paid" {
 		if err := u.ensureReconciliation(ctx, tx); err != nil {
@@ -1001,7 +1007,7 @@ func (u *transactionUsecase) handleDuitkuWebhookLocal(ctx context.Context, paylo
 			if getErr != nil && !errors.Is(getErr, gorm.ErrRecordNotFound) {
 				return fmt.Errorf("failed to fetch subscription: %w", getErr)
 			}
-			if subscription != nil {
+			if subscription != nil && subscription.Status != "cancelled" {
 				if tx.BillingPeriodStart != nil && subscription.Status == "suspended" {
 					lifecycle, ok := u.subscriptionRepo.(repository.SubscriptionLifecycleRepository)
 					if !ok {

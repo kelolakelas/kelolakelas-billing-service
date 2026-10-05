@@ -184,6 +184,15 @@ func (r *transactionRepository) getDB(ctx context.Context) *gorm.DB { return Get
 
 func (r *transactionRepository) GetByIDForUpdate(ctx context.Context, id uuid.UUID) (*domain.Transaction, error) {
 	var tx domain.Transaction
+	if err := r.getDB(ctx).First(&tx, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	if tx.SubscriptionID != nil {
+		var sub domain.Subscription
+		if err := r.getDB(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).First(&sub, "id = ?", *tx.SubscriptionID).Error; err != nil {
+			return nil, err
+		}
+	}
 	if err := r.getDB(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).First(&tx, "id = ?", id).Error; err != nil {
 		return nil, err
 	}

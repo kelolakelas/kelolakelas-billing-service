@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/kelolakelas/kelolakelas-billing-service/internal/domain"
 )
@@ -22,7 +23,7 @@ func (r *subscriptionRepository) Create(ctx context.Context, subscription *domai
 
 func (r *subscriptionRepository) GetByEnrollmentID(ctx context.Context, enrollmentID uuid.UUID) (*domain.Subscription, error) {
 	var subscription domain.Subscription
-	if err := GetDB(ctx, r.db).First(&subscription, "enrollment_id = ?", enrollmentID).Error; err != nil {
+	if err := GetDB(ctx, r.db).Clauses(clause.Locking{Strength: "UPDATE"}).First(&subscription, "enrollment_id = ?", enrollmentID).Error; err != nil {
 		return nil, err
 	}
 	return &subscription, nil

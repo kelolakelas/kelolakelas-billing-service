@@ -16,6 +16,7 @@ type routeHandlers struct {
 	salesSummary           gin.HandlerFunc
 	exportTransactions     gin.HandlerFunc
 	getTransaction         gin.HandlerFunc
+	recordRefund           gin.HandlerFunc
 	generateInternal       gin.HandlerFunc
 	cancelInternal         gin.HandlerFunc
 	listReconciliations    gin.HandlerFunc
@@ -67,6 +68,7 @@ func registerRoutes(r gin.IRouter, h routeHandlers, jwtSecret, internalCredentia
 	// keeps that contract pinned in the route test.
 	protected.GET("/transactions/export", middleware.RequirePermission(permissions, middleware.PermissionBillingRead), h.exportTransactions)
 	protected.GET("/transactions/:id", readTransactions, h.getTransaction)
+	protected.POST("/transactions/:id/refund", middleware.RequirePermission(permissions, "billing:refund"), h.recordRefund)
 	billingRead := middleware.RequirePermission(permissions, middleware.PermissionBillingRead)
 	protected.GET("/wallet", billingRead, h.walletBalance)
 	protected.GET("/ledger", billingRead, h.listLedger)

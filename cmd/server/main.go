@@ -80,7 +80,9 @@ func main() {
 	emailClient := email.NewResendClient(cfg.ResendAPIKey, cfg.ResendFromEmail, time.Duration(cfg.ResendHTTPTimeoutSeconds)*time.Second)
 	txUsecase := usecase.WithPlatformFeePolicy(usecase.NewTransactionUsecaseWithReconciliation(txRepo, walletRepo, ledgerRepo, subscriptionRepo, duitkuClient, academicClient, cfg, txManager, reconciliationRepo, emailClient), feePolicyClient)
 	worker := usecase.NewSubscriptionWorker(subscriptionRepo, txRepo, duitkuClient, email.NewResendClient(cfg.ResendAPIKey, cfg.ResendFromEmail, time.Duration(cfg.ResendHTTPTimeoutSeconds)*time.Second), cfg).WithPlatformFeePolicy(feePolicyClient).WithLifecycle(subscriptionRepo.(repository.SubscriptionLifecycleRepository))
-	reconciliationWorker := usecase.NewPaymentReconciliationWorker(reconciliationRepo, academicClient, cfg).WithLifecycle(subscriptionRepo.(repository.SubscriptionLifecycleRepository))
+	refundRepo := repository.NewRefundRepository(db)
+	refundHandler := handler.NewRefundHandler(refundRepo)
+	reconciliationWorker := usecase.NewPaymentReconciliationWorker(reconciliationRepo, academicClient, cfg).WithLifecycle(subscriptionRepo.(repository.SubscriptionLifecycleRepository)).WithRefunds(refundRepo)
 	// The expiry worker only needs the expiry capability; when the repository does
 	// not provide it the worker stays idle instead of failing startup.
 	expiryRepo, expiryRepoOK := txRepo.(repository.TransactionExpiryRepository)
@@ -132,6 +134,7 @@ func main() {
 	defer platformClient.Close()
 	registerRoutes(r, routeHandlers{
 		duitkuWebhook:          txHandler.HandleDuitkuWebhook,
+		recordRefund:           refundHandler.Record,
 		listTransactions:       txHandler.List,
 		salesSummary:           txHandler.SalesSummary,
 		exportTransactions:     txHandler.Export,

@@ -22,6 +22,7 @@ const reconciliationLease = 5 * time.Minute
 type PaymentReconciliationWorker struct {
 	reconciliations repository.PaymentReconciliationRepository
 	lifecycle       repository.SubscriptionLifecycleRepository
+	refunds         repository.RefundRepository
 	academic        academic.Client
 	cfg             config.Config
 	clock           Clock
@@ -61,7 +62,30 @@ func (w *PaymentReconciliationWorker) Run(ctx context.Context) {
 	}
 }
 
+func (w *PaymentReconciliationWorker) WithRefunds(repo repository.RefundRepository) *PaymentReconciliationWorker {
+	w.refunds = repo
+	return w
+}
+
 func (w *PaymentReconciliationWorker) RunOnce(ctx context.Context) {
+	if w.refunds != nil {
+		for ctx.Err() == nil {
+			err := w.refunds.ProcessRefund(ctx, w.clock.Now(), func(callCtx context.Context, id uuid.UUID) error {
+				client, ok := w.academic.(academic.RefundClient)
+				if !ok {
+					return errors.New("academic refund client unavailable")
+				}
+				return client.EndRefundedEnrollment(callCtx, id)
+			})
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				break
+			}
+			if err != nil {
+				slog.WarnContext(ctx, "refund job persistence failed", "error", err)
+				break
+			}
+		}
+	}
 	if w.lifecycle != nil {
 		for ctx.Err() == nil {
 			job, err := w.lifecycle.ClaimLifecycle(ctx, w.clock.Now())
@@ -72,14 +96,23 @@ func (w *PaymentReconciliationWorker) RunOnce(ctx context.Context) {
 				slog.WarnContext(ctx, "subscription lifecycle claim failed", "error", err)
 				break
 			}
+			call := func(callCtx context.Context) error {
+				client, ok := w.academic.(academic.LifecycleClient)
+				if !ok {
+					return errors.New("academic lifecycle client is unavailable")
+				}
+				if job.DesiredAction == "suspend" {
+					return client.SuspendEnrollment(callCtx, job.EnrollmentID)
+				}
+				return client.ResumeEnrollment(callCtx, job.EnrollmentID)
+			}
 			var callErr error
-			client, ok := w.academic.(academic.LifecycleClient)
-			if !ok {
-				callErr = errors.New("academic lifecycle client is unavailable")
-			} else if job.DesiredAction == "suspend" {
-				callErr = client.SuspendEnrollment(ctx, job.EnrollmentID)
+			if guard, ok := w.lifecycle.(interface {
+				GuardSubscription(context.Context, uuid.UUID, func(context.Context) error) error
+			}); ok {
+				callErr = guard.GuardSubscription(ctx, job.SubscriptionID, call)
 			} else {
-				callErr = client.ResumeEnrollment(ctx, job.EnrollmentID)
+				callErr = call(ctx)
 			}
 			failure := ""
 			if callErr != nil {
@@ -130,7 +163,15 @@ func processClaimedReconciliation(ctx context.Context, repo repository.PaymentRe
 	case domain.ReconciliationKindRelease:
 		err = academicClient.ReleaseEnrollment(ctx, reconciliation.EnrollmentID)
 	default:
-		err = academicClient.ActivateEnrollment(ctx, reconciliation.EnrollmentID)
+		if guard, ok := repo.(interface {
+			GuardActivation(context.Context, uuid.UUID, func(context.Context) error) error
+		}); ok {
+			err = guard.GuardActivation(ctx, reconciliation.TransactionID, func(callCtx context.Context) error {
+				return academicClient.ActivateEnrollment(callCtx, reconciliation.EnrollmentID)
+			})
+		} else {
+			err = academicClient.ActivateEnrollment(ctx, reconciliation.EnrollmentID)
+		}
 	}
 	if err != nil {
 		slog.WarnContext(ctx, "academic reconciliation call failed", "request_id", requestid.FromContext(ctx))
