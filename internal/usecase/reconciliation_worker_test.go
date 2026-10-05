@@ -124,7 +124,9 @@ func TestPaymentReconciliationWorkerPersistsRetryFailure(t *testing.T) {
 // KEL-71 regression: the reconciliation worker still stops through the shared signal
 // context. The context is cancelled after the first pass, while Run waits on its ticker.
 func TestPaymentReconciliationWorkerStopsWhenContextIsCanceled(t *testing.T) {
-	repo := &reconciliationRepoStub{}
+	// This stub returns its item on the first claim; give it a valid job even
+	// when the goroutine runs before cancel (not only an already-canceled ctx).
+	repo := &reconciliationRepoStub{item: &domain.PaymentReconciliation{ID: uuid.New(), EnrollmentID: uuid.New(), Kind: domain.ReconciliationKindActivation}}
 	worker := NewPaymentReconciliationWorker(repo, &academicActivationStub{}, reconciliationConfig(), reconciliationClock{now: time.Unix(100, 0)})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

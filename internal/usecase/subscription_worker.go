@@ -107,6 +107,17 @@ func (w *SubscriptionWorker) process(ctx context.Context, subscription *domain.S
 		_, err := w.lifecycle.SuspendOverdue(ctx, subscription.ID, period, now)
 		return err
 	}
+	if guard, ok := w.subscriptions.(interface {
+		GuardSubscription(context.Context, uuid.UUID, func(context.Context) error) error
+	}); ok {
+		return guard.GuardSubscription(ctx, subscription.ID, func(callCtx context.Context) error {
+			return w.processInvoice(callCtx, subscription, now, period)
+		})
+	}
+	return w.processInvoice(ctx, subscription, now, period)
+}
+
+func (w *SubscriptionWorker) processInvoice(ctx context.Context, subscription *domain.Subscription, now, period time.Time) error {
 	tx, err := w.transactions.GetBySubscriptionPeriod(ctx, subscription.ID, period)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		base, baseErr := w.transactions.GetByEnrollmentID(ctx, subscription.EnrollmentID)

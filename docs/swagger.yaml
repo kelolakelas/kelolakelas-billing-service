@@ -336,6 +336,16 @@ definitions:
       requeued_at:
         type: string
     type: object
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.RefundRequest:
+    properties:
+      reason:
+        type: string
+      transfer_reference:
+        type: string
+    required:
+    - reason
+    - transfer_reference
+    type: object
   github_com_kelolakelas_kelolakelas-billing-service_internal_domain.RejectWithdrawalRequest:
     properties:
       reason:
@@ -396,6 +406,31 @@ definitions:
           total_pages:
             type: integer
         type: object
+    type: object
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.TransactionRefund:
+    properties:
+      actor_id:
+        type: string
+      attempt_count:
+        type: integer
+      completed_at:
+        type: string
+      created_at:
+        type: string
+      last_error:
+        type: string
+      next_attempt_at:
+        type: string
+      reason:
+        type: string
+      status:
+        type: string
+      tenant_id:
+        type: string
+      transaction_id:
+        type: string
+      transfer_reference:
+        type: string
     type: object
   github_com_kelolakelas_kelolakelas-billing-service_internal_domain.TransactionResponse:
     properties:
@@ -1001,6 +1036,62 @@ paths:
       security:
       - BearerAuth: []
       summary: Get billing transaction
+      tags:
+      - Billing
+  /api/v1/billing/transactions/{id}/refund:
+    post:
+      consumes:
+      - application/json
+      description: Tenant-only billing:refund. Records transfer evidence without changing
+        wallet balances. Replays return the original record. Enrollment termination
+        is retried asynchronously; completed enrollments remain unchanged.
+      parameters:
+      - description: Transaction UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Refund evidence
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.RefundRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.TransactionRefund'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Record a full manual refund
       tags:
       - Billing
   /api/v1/billing/transactions/export:
