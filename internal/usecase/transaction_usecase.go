@@ -36,6 +36,7 @@ type transactionUsecase struct {
 	// feePolicy reads identity's applied platform fee policy (KEL-99). A nil
 	// reader refuses every new transaction instead of charging 0%.
 	feePolicy domain.PlatformFeePolicyReader
+	vouchers  repository.VoucherReservationRepository
 }
 
 // WithPlatformFeePolicy attaches the platform fee policy reader used for every
@@ -133,6 +134,18 @@ func (u *transactionUsecase) GetTransaction(ctx context.Context, id uuid.UUID) (
 }
 
 func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, req *domain.GenerateSubscriptionPaymentRequest) (*domain.GenerateSubscriptionPaymentResponse, error) {
+	// Never accept client-selected voucher ids or amounts, even from internal callers.
+	copyReq := *req
+	req = &copyReq
+	req.VoucherID = nil
+	req.DiscountAmount = 0
+	if u.vouchers != nil && !req.PrivateScheduleRequest {
+		if err := u.prepareVoucherCheckout(ctx, req); err != nil {
+			return nil, err
+		}
+	} else if strings.TrimSpace(req.VoucherCode) != "" {
+		return nil, domain.ErrVoucherRejected
+	}
 	// Validate at the trusted boundary too: internal callers can bypass HTTP binding.
 	paymentMethod := req.PaymentMethod
 	if paymentMethod == "" {
@@ -307,6 +320,7 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 	} else {
 		paymentMethod = "VC"
 	}
+	grossAmount = tx.GrossAmount // Reissues use the persisted snapshot, never replay input.
 	validityMinutes := u.invoiceValidityMinutes()
 	invoice, err := u.paymentGateway.CreateInvoice(ctx, &domain.CreateInvoiceRequest{
 		MerchantOrderID: tx.MerchantOrderID,

@@ -394,6 +394,10 @@ func (h *TransactionHandler) generateSubscriptionPayment(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": err.Error(), "data": nil})
 		return
 	}
+	if errors.Is(err, domain.ErrVoucherRejected) {
+		c.JSON(422, gin.H{"status": "error", "code": domain.VoucherRejectedCode, "message": domain.VoucherRejectedMessage, "data": nil})
+		return
+	}
 	if errors.Is(err, domain.ErrPlatformFeeExceedsGross) {
 		// KEL-99: a stable machine-readable code so callers can tell this apart
 		// from other validation failures. No record was written.

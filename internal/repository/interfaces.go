@@ -115,6 +115,21 @@ type VoucherRepository interface {
 	SoftDelete(ctx context.Context, tenantID, id uuid.UUID) (bool, error)
 }
 
+// VoucherReservationRepository is the checkout side of a voucher (KEL-162).
+// ReserveUseForCode runs under a row lock inside the caller's transaction.
+// Status-transition release and re-take are owned by the database trigger.
+type VoucherReservationRepository interface {
+	// ReserveUseForCode atomically takes one unit of a tenant voucher's
+	// remaining quota behind a checkout code. ok is false when the code is
+	// unknown for the tenant, the voucher is inactive, outside its validity
+	// window, below its minimum transaction, or out of quota — or when a
+	// concurrent checkout took the last unit first.
+	ReserveUseForCode(ctx context.Context, tenantID uuid.UUID, code string, now time.Time) (*domain.Voucher, bool, error)
+	// GetForPreviewByCode reads the voucher a preview would price, applying
+	// the same eligibility predicate as ReserveUseForCode minus the write.
+	GetForPreviewByCode(ctx context.Context, tenantID uuid.UUID, code string, now time.Time) (*domain.Voucher, error)
+}
+
 type TransactionRepository interface {
 	Create(ctx context.Context, transaction *domain.Transaction) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Transaction, error)

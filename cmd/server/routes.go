@@ -18,6 +18,7 @@ type routeHandlers struct {
 	getTransaction         gin.HandlerFunc
 	recordRefund           gin.HandlerFunc
 	generateInternal       gin.HandlerFunc
+	previewVoucher         gin.HandlerFunc
 	cancelInternal         gin.HandlerFunc
 	listReconciliations    gin.HandlerFunc
 	listLifecycle          gin.HandlerFunc
@@ -98,6 +99,9 @@ func registerRoutes(r gin.IRouter, h routeHandlers, jwtSecret, internalCredentia
 
 	internal := r.Group("/internal/billing")
 	internal.Use(middleware.InternalServiceAuth(internalCredential))
+	if h.previewVoucher != nil {
+		internal.POST("/vouchers/preview", h.previewVoucher)
+	}
 	internal.POST("/transactions", h.generateInternal)
 	internal.POST("/transactions/cancel", h.cancelInternal)
 	// Operator-facing recovery path for durable enrollments; there is no platform admin

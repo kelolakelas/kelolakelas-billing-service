@@ -88,6 +88,7 @@ func newPlatformTestRouterWithPermissions(admin *platformStub, stub *identityStu
 		getTransaction:         rec.handler("get"),
 		recordRefund:           rec.handler("refund"),
 		generateInternal:       rec.handler("internal-generate"),
+		previewVoucher:         rec.handler("preview-voucher"),
 		cancelInternal:         rec.handler("internal-cancel"),
 		listReconciliations:    rec.handler("internal-reconciliations"),
 		listLifecycle:          rec.handler("internal-lifecycle"),

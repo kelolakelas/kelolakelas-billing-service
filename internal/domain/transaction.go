@@ -112,19 +112,21 @@ func IsKnownResultCode(code string) bool {
 }
 
 type Transaction struct {
-	ID                uuid.UUID  `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
-	MerchantOrderID   string     `gorm:"type:varchar(255);unique;not null" json:"merchant_order_id"`
-	TenantID          uuid.UUID  `gorm:"type:uuid;not null;index" json:"tenant_id"`     // Cross-service
-	ParentID          uuid.UUID  `gorm:"type:uuid;not null;index" json:"parent_id"`     // Cross-service
-	StudentID         uuid.UUID  `gorm:"type:uuid;not null;index" json:"student_id"`    // Cross-service
-	EnrollmentID      uuid.UUID  `gorm:"type:uuid;not null;index" json:"enrollment_id"` // Cross-service
-	VoucherID         *uuid.UUID `gorm:"type:uuid;index" json:"voucher_id,omitempty"`   // In-service
-	SubtotalAmount    int64      `gorm:"type:bigint;not null" json:"subtotal_amount"`
-	DiscountAmount    int64      `gorm:"type:bigint;not null;default:0" json:"discount_amount"`
-	GrossAmount       int64      `gorm:"type:bigint;not null" json:"gross_amount"`
-	PlatformFee       int64      `gorm:"type:bigint;not null" json:"platform_fee"`
-	PaymentGatewayFee int64      `gorm:"type:bigint;not null;default:0" json:"payment_gateway_fee"`
-	NetAmount         int64      `gorm:"type:bigint;not null" json:"net_amount"`
+	ID                   uuid.UUID  `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	MerchantOrderID      string     `gorm:"type:varchar(255);unique;not null" json:"merchant_order_id"`
+	TenantID             uuid.UUID  `gorm:"type:uuid;not null;index" json:"tenant_id"`     // Cross-service
+	ParentID             uuid.UUID  `gorm:"type:uuid;not null;index" json:"parent_id"`     // Cross-service
+	StudentID            uuid.UUID  `gorm:"type:uuid;not null;index" json:"student_id"`    // Cross-service
+	EnrollmentID         uuid.UUID  `gorm:"type:uuid;not null;index" json:"enrollment_id"` // Cross-service
+	VoucherID            *uuid.UUID `gorm:"type:uuid;index" json:"voucher_id,omitempty"`   // In-service
+	VoucherUseReleasedAt *time.Time `json:"-"`
+	VoucherUseClaimedAt  *time.Time `json:"-"`
+	SubtotalAmount       int64      `gorm:"type:bigint;not null" json:"subtotal_amount"`
+	DiscountAmount       int64      `gorm:"type:bigint;not null;default:0" json:"discount_amount"`
+	GrossAmount          int64      `gorm:"type:bigint;not null" json:"gross_amount"`
+	PlatformFee          int64      `gorm:"type:bigint;not null" json:"platform_fee"`
+	PaymentGatewayFee    int64      `gorm:"type:bigint;not null;default:0" json:"payment_gateway_fee"`
+	NetAmount            int64      `gorm:"type:bigint;not null" json:"net_amount"`
 	// KEL-99 fee snapshot: the applied platform fee policy version, percent (bps),
 	// and fixed fee used to compute PlatformFee. NULL on transactions created
 	// before KEL-99, which never had a policy version. A database trigger keeps
@@ -182,6 +184,7 @@ type GenerateSubscriptionPaymentRequest struct {
 	EnrollmentID   uuid.UUID  `json:"enrollment_id" binding:"required"`
 	ParentID       uuid.UUID  `json:"parent_id" binding:"required"`
 	BillingCycle   string     `json:"billing_cycle" binding:"required,oneof=monthly quarterly yearly"`
+	VoucherCode    string     `json:"voucher_code,omitempty"`
 	VoucherID      *uuid.UUID `json:"voucher_id,omitempty"`
 	SubtotalAmount int64      `json:"subtotal_amount" binding:"required,gt=0"`
 	DiscountAmount int64      `json:"discount_amount" binding:"gte=0"`
