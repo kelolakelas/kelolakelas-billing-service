@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -295,6 +296,9 @@ func (r *transactionRepository) ClaimReinvoice(ctx context.Context, id uuid.UUID
 			"invoice_failure_reason": nil,
 			"updated_at":             now,
 		})
+	if result.Error != nil && strings.Contains(result.Error.Error(), domain.VoucherRejectedCode) {
+		return false, domain.ErrVoucherRejected
+	}
 	return result.RowsAffected == 1, result.Error
 }
 
@@ -335,12 +339,12 @@ func (r *transactionRepository) ExpireDue(ctx context.Context, now time.Time, li
 			SET status = ?, expired_at = ?, updated_at = ?
 			FROM due
 			WHERE t.id = due.id AND t.status = ?
-			RETURNING t.id, t.enrollment_id, t.subscription_id
+			RETURNING t.id, t.enrollment_id, t.subscription_id, t.billing_period_start
 		), released AS (
 			INSERT INTO payment_reconciliations (id, transaction_id, enrollment_id, kind, status, attempt_count, next_attempt_at, created_at, updated_at)
 			SELECT gen_random_uuid(), id, enrollment_id, ?, ?, 0, ?, ?, ?
 			FROM expired
-			WHERE enrollment_id <> ? AND subscription_id IS NULL
+			WHERE enrollment_id <> ? AND (subscription_id IS NULL OR billing_period_start IS NULL)
 			ON CONFLICT (transaction_id) DO NOTHING
 			RETURNING transaction_id
 		)
@@ -440,6 +444,7 @@ func (r *transactionRepository) MarkInvoiceIssued(ctx context.Context, id uuid.U
 		Where("id = ? AND status IN ?", id, []string{domain.TransactionStatusCreating, domain.TransactionStatusPending}).
 		Updates(map[string]interface{}{
 			"status":                               domain.TransactionStatusPending,
+			"subscription_id":                      gorm.Expr("COALESCE(subscription_id, (SELECT id FROM subscriptions WHERE enrollment_id = transactions.enrollment_id ORDER BY created_at LIMIT 1))"),
 			"expired_at":                           nil,
 			"invoice_expires_at":                   expiresAt,
 			"checkout_session_url":                 invoice.PaymentURL,

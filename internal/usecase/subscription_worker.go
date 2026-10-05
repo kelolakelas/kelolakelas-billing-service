@@ -127,11 +127,16 @@ func (w *SubscriptionWorker) processInvoice(ctx context.Context, subscription *d
 		merchantOrderID := "renewal-" + uuid.NewString()
 		// A renewal is a new transaction: its fee comes from the policy applied now,
 		// not from the base transaction's snapshot, and it fails closed.
-		fees, feeErr := newTransactionFees(ctx, w.feePolicy, base.GrossAmount, base.PaymentGatewayFee)
+		gross, discount := base.GrossAmount, base.DiscountAmount
+		if base.VoucherID != nil {
+			// Checkout vouchers never discount a renewal.
+			gross, discount = base.SubtotalAmount, 0
+		}
+		fees, feeErr := newTransactionFees(ctx, w.feePolicy, gross, base.PaymentGatewayFee)
 		if feeErr != nil {
 			return feeErr
 		}
-		tx = &domain.Transaction{ID: uuid.New(), MerchantOrderID: merchantOrderID, TenantID: base.TenantID, ParentID: base.ParentID, StudentID: base.StudentID, EnrollmentID: base.EnrollmentID, SubtotalAmount: base.SubtotalAmount, DiscountAmount: base.DiscountAmount, GrossAmount: base.GrossAmount, PaymentGatewayFee: base.PaymentGatewayFee, SubscriptionID: &subscription.ID, BillingPeriodStart: &period, BillingEmail: subscription.BillingEmail, ClassName: subscription.ClassName, Currency: base.Currency, Status: "pending", IsSandbox: base.IsSandbox, PaymentGatewayProvider: base.PaymentGatewayProvider}
+		tx = &domain.Transaction{ID: uuid.New(), MerchantOrderID: merchantOrderID, TenantID: base.TenantID, ParentID: base.ParentID, StudentID: base.StudentID, EnrollmentID: base.EnrollmentID, SubtotalAmount: base.SubtotalAmount, DiscountAmount: discount, GrossAmount: gross, PaymentGatewayFee: base.PaymentGatewayFee, SubscriptionID: &subscription.ID, BillingPeriodStart: &period, BillingEmail: subscription.BillingEmail, ClassName: subscription.ClassName, Currency: base.Currency, Status: "pending", IsSandbox: base.IsSandbox, PaymentGatewayProvider: base.PaymentGatewayProvider}
 		fees.Apply(tx)
 		if err = w.transactions.Create(ctx, tx); err != nil {
 			tx, err = w.transactions.GetBySubscriptionPeriod(ctx, subscription.ID, period)

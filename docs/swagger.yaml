@@ -167,6 +167,8 @@ definitions:
         type: string
       title:
         type: string
+      voucher_code:
+        type: string
       voucher_id:
         type: string
     required:

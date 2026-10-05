@@ -2522,6 +2522,9 @@ const docTemplate = `{
                 "title": {
                     "type": "string"
                 },
+                "voucher_code": {
+                    "type": "string"
+                },
                 "voucher_id": {
                     "type": "string"
                 }

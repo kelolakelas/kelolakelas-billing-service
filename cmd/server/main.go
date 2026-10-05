@@ -92,6 +92,8 @@ func main() {
 	expiryWorker := usecase.NewTransactionExpiryWorker(expiryRepo, cfg)
 	reconciliationAdmin := usecase.WithLifecycleAdmin(usecase.NewReconciliationAdminUsecase(reconciliationRepo), subscriptionRepo.(repository.SubscriptionLifecycleRepository))
 
+	voucherReservations := repository.NewVoucherReservation(db)
+	txUsecase = usecase.WithVoucherReservations(txUsecase, voucherReservations)
 	// Initialize Handlers
 	txHandler := handler.NewTransactionHandler(txUsecase, duitkuClient)
 	reconciliationHandler := handler.NewReconciliationHandler(reconciliationAdmin)
@@ -140,6 +142,7 @@ func main() {
 		exportTransactions:     txHandler.Export,
 		getTransaction:         txHandler.Get,
 		generateInternal:       txHandler.GenerateInternalSubscriptionPayment,
+		previewVoucher:         handler.VoucherPreview(usecase.NewVoucherPreviewUsecase(voucherReservations)),
 		cancelInternal:         txHandler.CancelInternalEnrollmentPayment,
 		listReconciliations:    reconciliationHandler.ListReconciliations,
 		listLifecycle:          reconciliationHandler.ListSubscriptionLifecycle,
