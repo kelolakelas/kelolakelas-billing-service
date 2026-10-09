@@ -19,7 +19,7 @@ import (
 type Clock interface{ Now() time.Time }
 type realClock struct{}
 
-func (realClock) Now() time.Time { return time.Now() }
+func (realClock) Now() time.Time { return time.Now().UTC() }
 
 type SubscriptionWorker struct {
 	subscriptions repository.SubscriptionRepository
@@ -82,7 +82,7 @@ func (w *SubscriptionWorker) Run(ctx context.Context) {
 }
 
 func (w *SubscriptionWorker) RunOnce(ctx context.Context) {
-	now := w.clock.Now()
+	now := w.clock.Now().UTC()
 	subscriptions, err := w.subscriptions.ListDueForRenewal(ctx, now.AddDate(0, 0, w.graceDays()))
 	if err != nil {
 		slog.ErrorContext(ctx, "list due subscriptions for renewal failed", "error", err)

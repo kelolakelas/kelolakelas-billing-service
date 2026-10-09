@@ -98,7 +98,7 @@ func (u *withdrawalUsecase) RequestWithdrawal(ctx context.Context, tenantID uuid
 		if wallet.PendingBalance < 0 || wallet.PendingBalance > math.MaxInt64-input.Amount {
 			return fmt.Errorf("invalid withdrawal hold state for tenant %s", tenantID)
 		}
-		now := time.Now()
+		now := time.Now().UTC()
 		wallet.AvailableBalance -= input.Amount
 		wallet.PendingBalance += input.Amount
 		if err := u.wallets.Update(ctx, wallet); err != nil {
@@ -205,7 +205,7 @@ func (u *withdrawalUsecase) CancelWithdrawal(ctx context.Context, tenantID, id u
 		if wallet == nil {
 			return domain.ErrWithdrawalNotFound
 		}
-		claimed, err := u.withdrawals.ClaimCancelled(ctx, tenantID, id, time.Now())
+		claimed, err := u.withdrawals.ClaimCancelled(ctx, tenantID, id, time.Now().UTC())
 		if err != nil {
 			return err
 		}

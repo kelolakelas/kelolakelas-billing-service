@@ -70,7 +70,7 @@ func (w *PaymentReconciliationWorker) WithRefunds(repo repository.RefundReposito
 func (w *PaymentReconciliationWorker) RunOnce(ctx context.Context) {
 	if w.refunds != nil {
 		for ctx.Err() == nil {
-			err := w.refunds.ProcessRefund(ctx, w.clock.Now(), func(callCtx context.Context, id uuid.UUID) error {
+			err := w.refunds.ProcessRefund(ctx, w.clock.Now().UTC(), func(callCtx context.Context, id uuid.UUID) error {
 				client, ok := w.academic.(academic.RefundClient)
 				if !ok {
 					return errors.New("academic refund client unavailable")
@@ -88,7 +88,7 @@ func (w *PaymentReconciliationWorker) RunOnce(ctx context.Context) {
 	}
 	if w.lifecycle != nil {
 		for ctx.Err() == nil {
-			job, err := w.lifecycle.ClaimLifecycle(ctx, w.clock.Now())
+			job, err := w.lifecycle.ClaimLifecycle(ctx, w.clock.Now().UTC())
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				break
 			}
@@ -118,13 +118,13 @@ func (w *PaymentReconciliationWorker) RunOnce(ctx context.Context) {
 			if callErr != nil {
 				failure = callErr.Error()
 			}
-			if err := w.lifecycle.FinishLifecycle(ctx, job, w.clock.Now(), failure, w.cfg.PaymentReconciliationMaxAttempts); err != nil {
+			if err := w.lifecycle.FinishLifecycle(ctx, job, w.clock.Now().UTC(), failure, w.cfg.PaymentReconciliationMaxAttempts); err != nil {
 				slog.WarnContext(ctx, "subscription lifecycle persistence failed", "error", err)
 			}
 		}
 	}
 	for ctx.Err() == nil {
-		reconciliation, err := w.reconciliations.ClaimDue(ctx, uuid.Nil, w.clock.Now(), reconciliationLease)
+		reconciliation, err := w.reconciliations.ClaimDue(ctx, uuid.Nil, w.clock.Now().UTC(), reconciliationLease)
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return
 		}
@@ -141,7 +141,7 @@ func (w *PaymentReconciliationWorker) RunOnce(ctx context.Context) {
 }
 
 func (w *PaymentReconciliationWorker) attempt(ctx context.Context, reconciliation *domain.PaymentReconciliation) error {
-	return processClaimedReconciliation(ctx, w.reconciliations, w.academic, w.cfg, reconciliation, w.clock.Now())
+	return processClaimedReconciliation(ctx, w.reconciliations, w.academic, w.cfg, reconciliation, w.clock.Now().UTC())
 }
 
 // processClaimedReconciliation performs the Academic call a claimed job asks for.

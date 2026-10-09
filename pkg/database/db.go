@@ -11,6 +11,9 @@ import (
 	"gorm.io/gorm/logger"
 )
 
+// UTCNow keeps GORM-generated timestamps independent of the process timezone.
+func UTCNow() time.Time { return time.Now().UTC() }
+
 func NewPostgresDB(host, port, user, password, dbname, sslMode, channelBinding string) (*gorm.DB, error) {
 	dsn := buildPostgresDSN(host, port, user, password, dbname, sslMode, channelBinding)
 
@@ -21,7 +24,7 @@ func NewPostgresDB(host, port, user, password, dbname, sslMode, channelBinding s
 		LogLevel:             logger.Silent,
 		ParameterizedQueries: true,
 	})
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: redactedLogger})
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: redactedLogger, NowFunc: UTCNow})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}

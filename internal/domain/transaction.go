@@ -96,7 +96,7 @@ func InvoiceExpiresAt(now time.Time, validityMinutes int) time.Time {
 	if validityMinutes <= 0 {
 		validityMinutes = DefaultInvoiceValidityMinutes
 	}
-	return now.Add(time.Duration(validityMinutes) * time.Minute)
+	return now.UTC().Add(time.Duration(validityMinutes) * time.Minute)
 }
 
 // IsKnownResultCode reports whether the callback result code has a documented

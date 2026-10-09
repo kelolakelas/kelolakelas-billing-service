@@ -29,7 +29,7 @@ func RunPrivatePaymentEmails(ctx context.Context, transactions repository.Transa
 	defer tick.Stop()
 	for {
 		if repo, ok := transactions.(repository.PrivatePaymentEmailRepository); ok && sender != nil {
-			rows, err := repo.ListPrivatePaymentEmails(ctx, time.Now(), 100)
+			rows, err := repo.ListPrivatePaymentEmails(ctx, time.Now().UTC(), 100)
 			if err != nil {
 				slog.ErrorContext(ctx, "list private payment emails failed", "error", err)
 			} else {

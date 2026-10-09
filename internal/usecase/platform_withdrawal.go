@@ -98,7 +98,7 @@ func (u *platformWithdrawalUsecase) Decide(ctx context.Context, adminID, id uuid
 		if err != nil {
 			return err
 		}
-		claimed, err := u.withdrawals.ClaimDecision(ctx, id, adminID, decision, detail, time.Now())
+		claimed, err := u.withdrawals.ClaimDecision(ctx, id, adminID, decision, detail, time.Now().UTC())
 		if err != nil {
 			return err
 		}

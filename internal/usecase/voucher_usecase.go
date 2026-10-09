@@ -88,8 +88,8 @@ func (u *voucherUsecase) Create(ctx context.Context, tenantID uuid.UUID, req *do
 		MinTransactionAmount: req.MinTransactionAmount,
 		MaxUses:              req.MaxUses,
 		IsActive:             isActive,
-		ValidFrom:            req.ValidFrom,
-		ValidUntil:           req.ValidUntil,
+		ValidFrom:            utcTimestamp(req.ValidFrom),
+		ValidUntil:           utcTimestamp(req.ValidUntil),
 	}
 	create := func(ctx context.Context) error {
 		if err := u.vouchers.LockTenantCodes(ctx, tenantID); err != nil {
@@ -110,6 +110,14 @@ func (u *voucherUsecase) Create(ctx context.Context, tenantID uuid.UUID, req *do
 		return nil, mapVoucherWriteError(err)
 	}
 	return domain.ToVoucherResponse(voucher), nil
+}
+
+func utcTimestamp(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
+	}
+	utc := value.UTC()
+	return &utc
 }
 
 func (u *voucherUsecase) Update(ctx context.Context, tenantID, id uuid.UUID, req *domain.UpdateVoucherRequest) (*domain.VoucherResponse, error) {
@@ -160,11 +168,11 @@ func (u *voucherUsecase) Update(ctx context.Context, tenantID, id uuid.UUID, req
 		}
 		validFrom := voucher.ValidFrom
 		if req.ValidFrom != nil {
-			validFrom = req.ValidFrom
+			validFrom = utcTimestamp(req.ValidFrom)
 		}
 		validUntil := voucher.ValidUntil
 		if req.ValidUntil != nil {
-			validUntil = req.ValidUntil
+			validUntil = utcTimestamp(req.ValidUntil)
 		}
 		// The usage cap is validated against the locked current_uses, so a
 		// concurrent checkout redemption (KEL-29) that consumed the last use
@@ -188,7 +196,7 @@ func (u *voucherUsecase) Update(ctx context.Context, tenantID, id uuid.UUID, req
 		if req.IsActive != nil {
 			voucher.IsActive = *req.IsActive
 		}
-		voucher.UpdatedAt = time.Now()
+		voucher.UpdatedAt = time.Now().UTC()
 		return u.vouchers.Update(ctx, voucher)
 	}
 	if u.txManager != nil {

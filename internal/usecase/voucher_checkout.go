@@ -24,7 +24,7 @@ func (u *transactionUsecase) prepareVoucherCheckout(ctx context.Context, req *do
 	if req.PaymentMethod != "" && req.PaymentMethod != "VC" && req.PaymentMethod != "VA" && req.PaymentMethod != "BC" && req.PaymentMethod != "SP" && req.PaymentMethod != "NQ" {
 		return domain.ErrInvalidPaymentMethod
 	}
-	if _, err := nextBillingDate(time.Now(), req.BillingCycle); err != nil {
+	if _, err := nextBillingDate(time.Now().UTC(), req.BillingCycle); err != nil {
 		return err
 	}
 	if u.txManager == nil {
@@ -53,7 +53,7 @@ func (u *transactionUsecase) prepareVoucherCheckout(ctx context.Context, req *do
 		if req.SubtotalAmount <= 0 {
 			return domain.ErrVoucherRejected
 		}
-		now := time.Now()
+		now := time.Now().UTC()
 		if strings.TrimSpace(req.VoucherCode) != "" {
 			v, reserved, err := u.vouchers.ReserveUseForCode(tc, req.TenantID, req.VoucherCode, now)
 			if err != nil {
@@ -104,7 +104,7 @@ func (u *VoucherPreviewUsecase) Preview(ctx context.Context, req VoucherPreviewR
 	if req.TenantID == uuid.Nil {
 		return nil, domain.ErrVoucherRejected
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	v, err := u.vouchers.GetForPreviewByCode(ctx, req.TenantID, req.VoucherCode, now)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, domain.ErrVoucherRejected
