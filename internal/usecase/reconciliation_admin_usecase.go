@@ -84,9 +84,10 @@ func (u *reconciliationAdminUsecase) RequeueTerminalFailedReconciliations(ctx co
 	if u.reconciliations == nil {
 		return nil, domain.ErrReconciliationUnavailable
 	}
-	requeued, err := u.reconciliations.RequeueTerminalFailed(ctx, u.clock.Now(), reconciliationRequeueBatchSize)
+	now := u.clock.Now().UTC()
+	requeued, err := u.reconciliations.RequeueTerminalFailed(ctx, now, reconciliationRequeueBatchSize)
 	if err != nil {
 		return nil, err
 	}
-	return &domain.ReconciliationRequeueResponse{Requeued: requeued, RequeuedAt: u.clock.Now()}, nil
+	return &domain.ReconciliationRequeueResponse{Requeued: requeued, RequeuedAt: now}, nil
 }

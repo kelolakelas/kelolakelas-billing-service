@@ -156,7 +156,7 @@ func (u *transactionUsecase) GenerateSubscriptionPayment(ctx context.Context, re
 	default:
 		return nil, domain.ErrInvalidPaymentMethod
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	hasTransaction := false
 	if existing, err := u.txRepo.GetByEnrollmentID(ctx, req.EnrollmentID); err == nil {
 		if response, ok := reusableInvoiceResponse(existing, now); ok {
@@ -550,7 +550,7 @@ func transactionResponse(tx *domain.Transaction) *domain.TransactionResponse {
 		provider = *tx.PaymentGatewayProvider
 	}
 	intent := ""
-	payable := tx.Status == domain.TransactionStatusPending && (tx.InvoiceExpiresAt == nil || tx.InvoiceExpiresAt.After(time.Now()))
+	payable := tx.Status == domain.TransactionStatusPending && (tx.InvoiceExpiresAt == nil || tx.InvoiceExpiresAt.After(time.Now().UTC()))
 	if payable && tx.PaymentIntentID != nil {
 		intent = *tx.PaymentIntentID
 	}
@@ -835,7 +835,7 @@ func (u *transactionUsecase) sendOutcomeEmail(ctx context.Context, tx *domain.Tr
 	if !ok {
 		return
 	}
-	sentAt := time.Now().Round(time.Microsecond)
+	sentAt := time.Now().UTC().Round(time.Microsecond)
 	claimed, err := lockingRepo.ClaimOutcomeEmail(ctx, tx.ID, tx.Status, sentAt)
 	if err != nil || !claimed {
 		if err != nil {
@@ -860,7 +860,7 @@ func (u *transactionUsecase) ensureReconciliation(ctx context.Context, tx *domai
 	if u.reconciliationRepo == nil {
 		return nil
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	return u.reconciliationRepo.EnsureActivation(ctx, &domain.PaymentReconciliation{
 		ID:            uuid.New(),
 		TransactionID: tx.ID,
@@ -880,7 +880,7 @@ func (u *transactionUsecase) enqueueSeatRelease(ctx context.Context, tx *domain.
 	if u.reconciliationRepo == nil || tx == nil || tx.EnrollmentID == uuid.Nil || (tx.SubscriptionID != nil && tx.BillingPeriodStart != nil) {
 		return nil
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	return u.reconciliationRepo.EnqueueRelease(ctx, &domain.PaymentReconciliation{
 		ID:            uuid.New(),
 		TransactionID: tx.ID,
@@ -919,14 +919,14 @@ func (u *transactionUsecase) reconcilePayment(ctx context.Context, tx *domain.Tr
 		}
 		return nil
 	}
-	reconciliation, err := u.reconciliationRepo.ClaimDue(ctx, tx.ID, time.Now(), reconciliationLease)
+	reconciliation, err := u.reconciliationRepo.ClaimDue(ctx, tx.ID, time.Now().UTC(), reconciliationLease)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("failed to claim enrollment reconciliation: %w", err)
 	}
-	return processClaimedReconciliation(ctx, u.reconciliationRepo, u.academicClient, u.cfg, reconciliation, time.Now())
+	return processClaimedReconciliation(ctx, u.reconciliationRepo, u.academicClient, u.cfg, reconciliation, time.Now().UTC())
 }
 
 func (u *transactionUsecase) handleDuitkuWebhookLocal(ctx context.Context, payload *domain.DuitkuCallbackPayload, confirmed *domain.PaymentStatus, result **domain.Transaction) error {
@@ -1000,7 +1000,7 @@ func (u *transactionUsecase) handleDuitkuWebhookLocal(ctx context.Context, paylo
 		// the parent really did pay, so the transaction becomes `paid` and the usual
 		// activation reconciliation is enqueued. `expired_at` is kept as evidence that
 		// the local deadline had passed while the payment was still settling.
-		now := time.Now()
+		now := time.Now().UTC()
 		tx.Status = domain.TransactionStatusPaid
 		tx.PaidAt = &now
 		if payload.PaymentCode != "" {

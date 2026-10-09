@@ -39,7 +39,7 @@ func (w *TransactionExpiryWorker) RunOnce(ctx context.Context) {
 		return
 	}
 	for ctx.Err() == nil {
-		expired, err := w.transactions.ExpireDue(ctx, w.clock.Now(), transactionExpiryBatchSize)
+		expired, err := w.transactions.ExpireDue(ctx, w.clock.Now().UTC(), transactionExpiryBatchSize)
 		if err != nil {
 			slog.ErrorContext(ctx, "failed to expire unpaid transactions", "error", err)
 			return

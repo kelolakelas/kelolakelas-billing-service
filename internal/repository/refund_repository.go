@@ -72,7 +72,7 @@ func (r *refundRepository) RecordRefund(ctx context.Context, tenant, actor, id u
 		if err := db.Model(&tx).Update("status", domain.TransactionStatusRefunded).Error; err != nil {
 			return err
 		}
-		now := time.Now()
+		now := time.Now().UTC()
 		refund = domain.TransactionRefund{TransactionID: id, TenantID: tenant, ActorID: actor, Reason: req.Reason, TransferReference: req.TransferReference, CreatedAt: now, Status: "pending", NextAttemptAt: &now}
 		return db.Create(&refund).Error
 	})

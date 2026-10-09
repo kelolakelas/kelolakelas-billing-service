@@ -214,6 +214,7 @@ func (r *transactionRepository) GetByIDForUpdate(ctx context.Context, id uuid.UU
 // current claim, and the failure reason of the previous attempt is cleared because the
 // caller is about to make a fresh one.
 func (r *transactionRepository) ClaimInvoice(ctx context.Context, id uuid.UUID, now time.Time, claimTimeoutMinutes int) (bool, error) {
+	now = now.UTC()
 	if claimTimeoutMinutes <= 0 {
 		claimTimeoutMinutes = domain.DefaultTransactionClaimTimeoutMinutes
 	}
@@ -267,6 +268,7 @@ func (r *transactionRepository) RestoreFailedInvoiceClaim(ctx context.Context, i
 // statement. Without that arm the enrollment would be stuck in `creating` forever
 // whenever the replacement invoice never completed.
 func (r *transactionRepository) ClaimReinvoice(ctx context.Context, id uuid.UUID, now time.Time, claimTimeoutMinutes int) (bool, error) {
+	now = now.UTC()
 	if claimTimeoutMinutes <= 0 {
 		claimTimeoutMinutes = domain.DefaultTransactionClaimTimeoutMinutes
 	}
@@ -323,6 +325,7 @@ func (r *transactionRepository) ClaimReinvoice(ctx context.Context, id uuid.UUID
 // and reporting that skip as a transition would announce a seat release that never
 // happened.
 func (r *transactionRepository) ExpireDue(ctx context.Context, now time.Time, limit int) (int64, error) {
+	now = now.UTC()
 	if limit <= 0 {
 		return 0, nil
 	}
@@ -388,7 +391,7 @@ func (r *transactionRepository) ExpireDue(ctx context.Context, now time.Time, li
 // transaction so the enqueue is logged with both ids, and a release job that lost the
 // unique-index race is reported as skipped rather than as a new transition.
 func (r *transactionRepository) CancelUnpaid(ctx context.Context, id uuid.UUID) (bool, error) {
-	now := time.Now()
+	now := time.Now().UTC()
 	var cancelled []expiredTransactionRelease
 	err := r.getDB(ctx).Raw(`
 		WITH target AS (
@@ -446,7 +449,7 @@ func (r *transactionRepository) MarkInvoiceIssued(ctx context.Context, id uuid.U
 			"status":                               domain.TransactionStatusPending,
 			"subscription_id":                      gorm.Expr("COALESCE(subscription_id, (SELECT id FROM subscriptions WHERE enrollment_id = transactions.enrollment_id ORDER BY created_at LIMIT 1))"),
 			"expired_at":                           nil,
-			"invoice_expires_at":                   expiresAt,
+			"invoice_expires_at":                   expiresAt.UTC(),
 			"checkout_session_url":                 invoice.PaymentURL,
 			"payment_intent_id":                    invoice.Reference,
 			"va_number":                            nullableInstruction(invoice.VANumber),
@@ -457,7 +460,7 @@ func (r *transactionRepository) MarkInvoiceIssued(ctx context.Context, id uuid.U
 			"private_payment_email_sent_at":        nil,
 			"private_payment_email_claimed_at":     nil,
 			"private_payment_email_failure_reason": nil,
-			"updated_at":                           time.Now(),
+			"updated_at":                           time.Now().UTC(),
 		})
 	return result.RowsAffected == 1, result.Error
 }
