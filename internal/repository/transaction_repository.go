@@ -90,11 +90,9 @@ func (r *transactionRepository) List(ctx context.Context, tenantID, parentID *uu
 
 // applyTransactionFilters adds the status, student, enrollment, search, and
 // date predicates shared by the paginated list and the CSV export, so the two
-// can never drift apart. The date basis is opt-in: anything but
-// `domain.TransactionDateByPaidAt` keeps the historical `created_at`
-// comparison exactly as before, while the `paid_at` basis filters the
-// half-open UTC interval [from, to+1 day) so the `to` date is inclusive for
-// every payment on that UTC day, matching the sales summary.
+// can never drift apart. Both timestamp bases use the half-open UTC interval
+// [from, to+1 day), including every instant on the final calendar day.
+// The default remains created_at; paid_at matches the sales summary.
 func applyTransactionFilters(db *gorm.DB, query domain.TransactionQuery) *gorm.DB {
 	if query.Status != "" {
 		db = db.Where("status = ?", query.Status)
@@ -121,7 +119,7 @@ func applyTransactionFilters(db *gorm.DB, query domain.TransactionQuery) *gorm.D
 		db = db.Where("created_at >= ?", *query.DateFrom)
 	}
 	if query.DateTo != nil {
-		db = db.Where("created_at <= ?", *query.DateTo)
+		db = db.Where("created_at < ?", query.DateTo.AddDate(0, 0, 1))
 	}
 	return db
 }
