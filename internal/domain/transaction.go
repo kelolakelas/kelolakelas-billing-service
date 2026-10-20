@@ -268,8 +268,8 @@ type SalesSummaryResponse struct {
 }
 
 // TransactionDateBy selects which timestamp the transaction list date range
-// filters on. The empty value keeps the historical behaviour: filtering on
-// the creation date. `paid_at` is opt-in so existing callers see no change.
+// filters on. The empty value defaults to the creation date; paid_at is opt-in.
+// Both bases include every instant of the final UTC calendar day.
 const (
 	TransactionDateByCreatedAt = "created_at"
 	TransactionDateByPaidAt    = "paid_at"
@@ -277,7 +277,7 @@ const (
 
 // IsTransactionDateByValue reports whether a date-basis selector is one the
 // service recognises. The empty selector is accepted and means the historical
-// `created_at` basis, so omitting the parameter never breaks an old caller.
+// `created_at` basis.
 func IsTransactionDateByValue(dateBy string) bool {
 	switch dateBy {
 	case "", TransactionDateByCreatedAt, TransactionDateByPaidAt:
@@ -298,8 +298,8 @@ type TransactionQuery struct {
 	DateFrom     *time.Time
 	DateTo       *time.Time
 	// DateBy selects the filtered timestamp: "" (or "created_at") filters on
-	// the creation date exactly as before, "paid_at" filters on the payment
-	// date with inclusive UTC-day semantics matching the sales summary.
+	// the creation date, "paid_at" filters on the payment date. Both use
+	// inclusive UTC-day semantics.
 	DateBy string
 	Search string
 }

@@ -186,3 +186,78 @@ func TestIterateExportEmptyRangePostgres(t *testing.T) {
 		t.Fatalf("streamed=%d rows, want none", len(streamed))
 	}
 }
+
+// KEL-213: unpaid rows have no paid_at. Creation-date list/export must include
+// both endpoints of the UTC date range and exclude the following midnight.
+func TestNonPaidCreationDateRangePostgres(t *testing.T) {
+	db := openSalesSummaryDatabase(t)
+	repo := NewTransactionRepository(db).(*transactionRepository)
+	day := time.Date(2026, time.October, 20, 0, 0, 0, 0, time.UTC)
+	until := day.AddDate(0, 0, 1)
+	for _, status := range []string{"pending", "cancelled", "failed", "expired", "refunded", "creating"} {
+		t.Run(status, func(t *testing.T) {
+			tenant, otherTenant := uuid.New(), uuid.New()
+			seed := func(owner uuid.UUID, created time.Time, deleted bool) uuid.UUID {
+				t.Helper()
+				tx := domain.Transaction{
+					ID: uuid.New(), MerchantOrderID: "kel213-" + uuid.NewString(), TenantID: owner,
+					ParentID: uuid.New(), StudentID: uuid.New(), EnrollmentID: uuid.New(),
+					SubtotalAmount: 50000, GrossAmount: 50000, NetAmount: 50000,
+					Currency: "IDR", Status: status, BillingEmail: "test@example.com", CreatedAt: created,
+				}
+				if err := db.Create(&tx).Error; err != nil {
+					t.Fatal(err)
+				}
+				if deleted {
+					if err := db.Delete(&tx).Error; err != nil {
+						t.Fatal(err)
+					}
+				}
+				t.Cleanup(func() { db.Unscoped().Delete(&domain.Transaction{}, "id = ?", tx.ID) })
+				return tx.ID
+			}
+			want := map[uuid.UUID]bool{
+				seed(tenant, day, false):                          true,
+				seed(tenant, day.Add(12*time.Hour), false):        true,
+				seed(tenant, until.Add(-time.Microsecond), false): true,
+			}
+			seed(tenant, day.Add(-time.Microsecond), false)
+			seed(tenant, until, false)
+			seed(otherTenant, day.Add(time.Hour), false)
+			seed(tenant, day.Add(time.Hour), true)
+			for _, basis := range []string{"", domain.TransactionDateByCreatedAt} {
+				query := domain.TransactionQuery{Page: 1, PageSize: 20, Status: status, DateBy: basis, DateFrom: &day, DateTo: &day}
+				items, total, err := repo.List(context.Background(), &tenant, nil, query)
+				if err != nil || total != 3 || len(items) != 3 {
+					t.Fatalf("basis=%q rows=%d total=%d err=%v", basis, len(items), total, err)
+				}
+				for _, item := range items {
+					if !want[item.ID] || item.PaidAt != nil {
+						t.Fatalf("unexpected list row %+v", item)
+					}
+				}
+				var exported []domain.Transaction
+				if err := repo.IterateExport(context.Background(), tenant, query, 2, func(batch []domain.Transaction) error {
+					exported = append(exported, batch...)
+					return nil
+				}); err != nil {
+					t.Fatal(err)
+				}
+				if len(exported) != 3 {
+					t.Fatalf("exported=%d", len(exported))
+				}
+				for _, item := range exported {
+					if !want[item.ID] {
+						t.Fatalf("unexpected export row %s", item.ID)
+					}
+				}
+				// The same unpaid rows remain absent under an explicit paid-date filter.
+				query.DateBy = domain.TransactionDateByPaidAt
+				_, total, err = repo.List(context.Background(), &tenant, nil, query)
+				if err != nil || total != 0 {
+					t.Fatalf("paid-date unpaid rows=%d err=%v", total, err)
+				}
+			}
+		})
+	}
+}
