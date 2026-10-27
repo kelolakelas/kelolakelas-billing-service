@@ -2038,6 +2038,80 @@ const docTemplate = `{
                 }
             }
         },
+        "/internal/billing/private-request-invoice": {
+            "post": {
+                "security": [
+                    {
+                        "InternalServiceCredential": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Internal billing"
+                ],
+                "summary": "Read one scoped initial private invoice",
+                "parameters": [
+                    {
+                        "description": "Exact persisted private purchase scope",
+                        "name": "scope",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.PrivateInvoiceScope"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.PrivateInvoice"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/internal/billing/reconciliations": {
             "get": {
                 "description": "Internal service-to-service endpoint for operators. Returns the durable reconciliation jobs of enrollment activation and seat release so a permanently failed job can be found without a provider callback. Without ` + "`" + `status` + "`" + ` every row is returned.",
@@ -2750,6 +2824,62 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_kelolakelas_kelolakelas-billing-service_internal_domain.PrivateInvoice": {
+            "type": "object",
+            "properties": {
+                "checkout_session_url": {
+                    "type": "string"
+                },
+                "enrollment_id": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "invoice_expires_at": {
+                    "type": "string"
+                },
+                "parent_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "student_id": {
+                    "type": "string"
+                },
+                "tenant_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_kelolakelas_kelolakelas-billing-service_internal_domain.PrivateInvoiceScope": {
+            "type": "object",
+            "required": [
+                "enrollment_id",
+                "parent_id",
+                "student_id",
+                "tenant_id",
+                "transaction_id"
+            ],
+            "properties": {
+                "enrollment_id": {
+                    "type": "string"
+                },
+                "parent_id": {
+                    "type": "string"
+                },
+                "student_id": {
+                    "type": "string"
+                },
+                "tenant_id": {
+                    "type": "string"
+                },
+                "transaction_id": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ReconciliationListResponse": {
             "type": "object",
             "properties": {
@@ -3250,6 +3380,11 @@ const docTemplate = `{
         "BearerAuth": {
             "type": "apiKey",
             "name": "Authorization",
+            "in": "header"
+        },
+        "InternalServiceCredential": {
+            "type": "apiKey",
+            "name": "X-Internal-Service-Credential",
             "in": "header"
         }
     }

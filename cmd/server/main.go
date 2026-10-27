@@ -33,6 +33,9 @@ import (
 // @securityDefinitions.apikey BearerAuth
 // @in header
 // @name Authorization
+// @securityDefinitions.apikey InternalServiceCredential
+// @in header
+// @name X-Internal-Service-Credential
 func main() {
 	// Initialize JSON logging
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
@@ -135,6 +138,7 @@ func main() {
 	}
 	defer platformClient.Close()
 	registerRoutes(r, routeHandlers{
+		readPrivateInvoice:     handler.ReadPrivateRequestInvoice(repository.NewPrivateInvoiceReader(db)),
 		duitkuWebhook:          txHandler.HandleDuitkuWebhook,
 		recordRefund:           refundHandler.Record,
 		listTransactions:       txHandler.List,

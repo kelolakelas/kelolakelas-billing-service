@@ -324,6 +324,44 @@ definitions:
       transfer_reference:
         type: string
     type: object
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.PrivateInvoice:
+    properties:
+      checkout_session_url:
+        type: string
+      enrollment_id:
+        type: string
+      id:
+        type: string
+      invoice_expires_at:
+        type: string
+      parent_id:
+        type: string
+      status:
+        type: string
+      student_id:
+        type: string
+      tenant_id:
+        type: string
+    type: object
+  github_com_kelolakelas_kelolakelas-billing-service_internal_domain.PrivateInvoiceScope:
+    properties:
+      enrollment_id:
+        type: string
+      parent_id:
+        type: string
+      student_id:
+        type: string
+      tenant_id:
+        type: string
+      transaction_id:
+        type: string
+    required:
+    - enrollment_id
+    - parent_id
+    - student_id
+    - tenant_id
+    - transaction_id
+    type: object
   github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ReconciliationListResponse:
     properties:
       items:
@@ -1967,6 +2005,50 @@ paths:
       summary: Reject a manual withdrawal
       tags:
       - Billing
+  /internal/billing/private-request-invoice:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Exact persisted private purchase scope
+        in: body
+        name: scope
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.PrivateInvoiceScope'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.HTTPResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.PrivateInvoice'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/github_com_kelolakelas_kelolakelas-billing-service_internal_domain.ErrorResponse'
+      security:
+      - InternalServiceCredential: []
+      summary: Read one scoped initial private invoice
+      tags:
+      - Internal billing
   /internal/billing/reconciliations:
     get:
       description: Internal service-to-service endpoint for operators. Returns the
@@ -2129,5 +2211,9 @@ securityDefinitions:
   BearerAuth:
     in: header
     name: Authorization
+    type: apiKey
+  InternalServiceCredential:
+    in: header
+    name: X-Internal-Service-Credential
     type: apiKey
 swagger: "2.0"
