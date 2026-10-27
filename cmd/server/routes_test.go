@@ -81,6 +81,7 @@ func newPlatformTestRouterWithPermissions(admin *platformStub, stub *identityStu
 	rec := &routeRecorder{hits: map[string]int{}}
 	router := gin.New()
 	registerRoutes(router, routeHandlers{
+		readPrivateInvoice:     rec.handler("private-invoice"),
 		duitkuWebhook:          rec.handler("webhook"),
 		listTransactions:       rec.handler("list"),
 		salesSummary:           rec.handler("summary"),
@@ -409,5 +410,24 @@ func TestWebhookAndInternalRoutesDoNotAskIdentity(t *testing.T) {
 		if got := serve(router, http.MethodGet, target, "", nil); got.Code != http.StatusUnauthorized {
 			t.Fatalf("internal route %s without credential status=%d, want 401", target, got.Code)
 		}
+	}
+}
+
+func TestPrivateInvoiceReadIsInternalCredentialOnly(t *testing.T) {
+	router, rec := newRouteTestRouter(t, &identityStub{})
+	for _, tc := range []struct {
+		credential string
+		want       int
+	}{{"", 401}, {"wrong", 401}, {routeTestCredential, 200}} {
+		req := httptest.NewRequest("POST", "/internal/billing/private-request-invoice", nil)
+		req.Header.Set("X-Internal-Service-Credential", tc.credential)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if w.Code != tc.want {
+			t.Fatalf("read credential got%d", w.Code)
+		}
+	}
+	if rec.hits["private-invoice"] != 1 {
+		t.Fatal("credential bypass")
 	}
 }

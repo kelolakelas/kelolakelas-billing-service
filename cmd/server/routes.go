@@ -11,6 +11,7 @@ import (
 // as plain handler funcs so the route table, including which middleware guards which
 // route, can be tested without a database or a payment gateway.
 type routeHandlers struct {
+	readPrivateInvoice     gin.HandlerFunc
 	duitkuWebhook          gin.HandlerFunc
 	listTransactions       gin.HandlerFunc
 	salesSummary           gin.HandlerFunc
@@ -101,6 +102,9 @@ func registerRoutes(r gin.IRouter, h routeHandlers, jwtSecret, internalCredentia
 	internal.Use(middleware.InternalServiceAuth(internalCredential))
 	if h.previewVoucher != nil {
 		internal.POST("/vouchers/preview", h.previewVoucher)
+	}
+	if h.readPrivateInvoice != nil {
+		internal.POST("/private-request-invoice", h.readPrivateInvoice)
 	}
 	internal.POST("/transactions", h.generateInternal)
 	internal.POST("/transactions/cancel", h.cancelInternal)
