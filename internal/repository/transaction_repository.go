@@ -345,7 +345,7 @@ func (r *transactionRepository) ExpireDue(ctx context.Context, now time.Time, li
 			INSERT INTO payment_reconciliations (id, transaction_id, enrollment_id, kind, status, attempt_count, next_attempt_at, created_at, updated_at)
 			SELECT gen_random_uuid(), id, enrollment_id, ?, ?, 0, ?, ?, ?
 			FROM expired
-			WHERE enrollment_id <> ? AND (subscription_id IS NULL OR billing_period_start IS NULL)
+			WHERE enrollment_id <> ? AND (id = enrollment_id OR subscription_id IS NULL OR billing_period_start IS NULL)
 			ON CONFLICT (transaction_id) DO NOTHING
 			RETURNING transaction_id
 		)

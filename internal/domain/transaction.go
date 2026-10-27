@@ -177,6 +177,15 @@ type CancelEnrollmentPaymentRequest struct {
 	EnrollmentID uuid.UUID `json:"enrollment_id" binding:"required"`
 }
 
+// IsRenewal distinguishes worker-created period invoices from the initial
+// purchase. Both have a subscription and billing period, but initial invoice
+// creation has always used the enrollment ID as its transaction ID. Renewals
+// use a new transaction ID. Keep legacy invoices without period metadata on
+// the initial-purchase path.
+func (t *Transaction) IsRenewal() bool {
+	return t.SubscriptionID != nil && t.BillingPeriodStart != nil && t.ID != t.EnrollmentID
+}
+
 type GenerateSubscriptionPaymentRequest struct {
 	TenantID       uuid.UUID  `json:"tenant_id" binding:"required"`
 	StudentID      uuid.UUID  `json:"student_id" binding:"required"`
