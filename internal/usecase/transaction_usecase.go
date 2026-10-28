@@ -854,7 +854,7 @@ func (u *transactionUsecase) sendOutcomeEmail(ctx context.Context, tx *domain.Tr
 func (u *transactionUsecase) ensureReconciliation(ctx context.Context, tx *domain.Transaction) error {
 	// Renewal lifecycle is handled by the subscription job; activation belongs
 	// only to the initial purchase. An expired renewal must not release its seat.
-	if tx.SubscriptionID != nil && tx.BillingPeriodStart != nil {
+	if tx.IsRenewal() {
 		return nil
 	}
 	if u.reconciliationRepo == nil {
@@ -877,7 +877,7 @@ func (u *transactionUsecase) ensureReconciliation(ctx context.Context, tx *domai
 // Non-enrollment transactions (billing-only records with no Academic enrollment)
 // owe nothing and are skipped.
 func (u *transactionUsecase) enqueueSeatRelease(ctx context.Context, tx *domain.Transaction) error {
-	if u.reconciliationRepo == nil || tx == nil || tx.EnrollmentID == uuid.Nil || (tx.SubscriptionID != nil && tx.BillingPeriodStart != nil) {
+	if u.reconciliationRepo == nil || tx == nil || tx.EnrollmentID == uuid.Nil || tx.IsRenewal() {
 		return nil
 	}
 	now := time.Now().UTC()
@@ -906,7 +906,7 @@ func (u *transactionUsecase) cancelPendingSeatRelease(ctx context.Context, tx *d
 }
 
 func (u *transactionUsecase) reconcilePayment(ctx context.Context, tx *domain.Transaction) error {
-	if tx.SubscriptionID != nil && tx.BillingPeriodStart != nil {
+	if tx.IsRenewal() {
 		return nil
 	}
 	if u.reconciliationRepo == nil {
