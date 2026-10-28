@@ -23,20 +23,21 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:18
+        image: postgres:16
         env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: billing_test
+          POSTGRES_USER: keltest
+          POSTGRES_PASSWORD: keltest
+          POSTGRES_DB: kel226_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U keltest -d kel226_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
     env:
-      KEL221_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/billing_test?sslmode=disable
+      KEL221_TEST_DATABASE_URL: postgres://keltest:keltest@localhost:5432/kel226_test?sslmode=disable
+      KEL226_TEST_DATABASE_URL: postgres://keltest:keltest@localhost:5432/kel226_test?sslmode=disable
     steps:
       - name: Check out source
         uses: actions/checkout@v4
